@@ -10,6 +10,7 @@ import pygame
 import pickle
 import threading
 import time
+import os
 from board import GameState
 from neural_search import TreeSearchAgent
 from model_inference import NumpyNetworkEvaluator
@@ -30,6 +31,26 @@ MENU_BG = (45, 45, 55)
 MENU_ACCENT = (70, 130, 180)
 
 
+def loadChineseFont(size):
+    """加载支持中文的字体"""
+    # 尝试常见的中文字体路径
+    fontPaths = [
+        "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
+        "C:/Windows/Fonts/simhei.ttf",    # 黑体
+        "C:/Windows/Fonts/simsun.ttc",    # 宋体
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # Linux
+        "/System/Library/Fonts/PingFang.ttc",  # macOS
+    ]
+    for fontPath in fontPaths:
+        if os.path.exists(fontPath):
+            try:
+                return pygame.font.Font(fontPath, size)
+            except:
+                continue
+    # 回退到默认字体
+    return pygame.font.Font(None, size)
+
+
 class GomokuInterface:
     def __init__(self, boardCols=8, boardRows=8, winLength=5):
         self.boardCols = boardCols
@@ -47,10 +68,10 @@ class GomokuInterface:
         # Initialize Pygame
         pygame.init()
         self.display = pygame.display.set_mode((self.windowWidth, self.windowHeight))
-        pygame.display.set_caption(f'AlphaZero Gomoku {boardCols}x{boardRows}')
-        self.titleFont = pygame.font.Font(None, 48)
-        self.normalFont = pygame.font.Font(None, 36)
-        self.smallFont = pygame.font.Font(None, 28)
+        pygame.display.set_caption(f'AI 五子棋 {boardCols}x{boardRows}')
+        self.titleFont = loadChineseFont(42)
+        self.normalFont = loadChineseFont(28)
+        self.smallFont = loadChineseFont(22)
 
         # Game state
         self.gameState = GameState(width=boardCols, height=boardRows, n_in_row=winLength)
@@ -76,7 +97,7 @@ class GomokuInterface:
 
     def _initializeAI(self):
         """Load the AlphaZero AI model"""
-        modelFile = f'best_policy_{self.boardCols}_{self.boardRows}_{self.winLength}.model'
+        modelFile = f'{self.boardCols}_{self.boardRows}_{self.winLength}.model'
         try:
             try:
                 modelParams = pickle.load(open(modelFile, 'rb'))
@@ -115,12 +136,12 @@ class GomokuInterface:
         self.display.fill(MENU_BG)
 
         # Title
-        title = self.titleFont.render("AlphaZero Gomoku", True, TEXT_WHITE)
+        title = self.titleFont.render("AI 五子棋", True, TEXT_WHITE)
         titleRect = title.get_rect(center=(self.windowWidth // 2, 60))
         self.display.blit(title, titleRect)
 
         # Subtitle
-        subtitle = self.smallFont.render(f"{self.boardCols}x{self.boardRows} Board, {self.winLength} in a row to win",
+        subtitle = self.smallFont.render(f"{self.boardCols}x{self.boardRows} 棋盘，{self.winLength}子连珠获胜",
                                          True, (180, 180, 180))
         subtitleRect = subtitle.get_rect(center=(self.windowWidth // 2, 100))
         self.display.blit(subtitle, subtitleRect)
@@ -128,49 +149,23 @@ class GomokuInterface:
         mousePos = pygame.mouse.get_pos()
 
         # Game Mode Selection
-        modeLabel = self.normalFont.render("Game Mode:", True, TEXT_WHITE)
+        modeLabel = self.normalFont.render("游戏模式：", True, TEXT_WHITE)
         self.display.blit(modeLabel, (self.windowWidth // 2 - 150, 150))
 
-        # Human vs AI button
-        self.btnHumanVsAi = pygame.Rect(self.windowWidth // 2 - 120, 190, 240, 45)
-        btnColor = MENU_ACCENT if self.btnHumanVsAi.collidepoint(mousePos) else BTN_NORMAL
-        pygame.draw.rect(self.display, btnColor, self.btnHumanVsAi, border_radius=8)
-        btnText = self.normalFont.render("Human vs AI", True, TEXT_WHITE)
-        self.display.blit(btnText, btnText.get_rect(center=self.btnHumanVsAi.center))
+        # Human vs AI - First (Black) button
+        self.btnHumanFirst = pygame.Rect(self.windowWidth // 2 - 120, 190, 240, 45)
+        btnColor = MENU_ACCENT if self.btnHumanFirst.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnHumanFirst, border_radius=8)
+        btnText = self.normalFont.render("人机对战（先手）", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnHumanFirst.center))
 
-        # AI vs AI button
-        self.btnAiVsAi = pygame.Rect(self.windowWidth // 2 - 120, 250, 240, 45)
-        btnColor = MENU_ACCENT if self.btnAiVsAi.collidepoint(mousePos) else BTN_NORMAL
-        pygame.draw.rect(self.display, btnColor, self.btnAiVsAi, border_radius=8)
-        btnText = self.normalFont.render("AI vs AI", True, TEXT_WHITE)
-        self.display.blit(btnText, btnText.get_rect(center=self.btnAiVsAi.center))
+        # Human vs AI - Second (White) button
+        self.btnHumanSecond = pygame.Rect(self.windowWidth // 2 - 120, 250, 240, 45)
+        btnColor = MENU_ACCENT if self.btnHumanSecond.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnHumanSecond, border_radius=8)
+        btnText = self.normalFont.render("人机对战（后手）", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnHumanSecond.center))
 
-        # First/Second player selection (only for Human vs AI)
-        orderLabel = self.normalFont.render("Play as:", True, TEXT_WHITE)
-        self.display.blit(orderLabel, (self.windowWidth // 2 - 150, 320))
-
-        # First player (Black) button
-        self.btnPlayFirst = pygame.Rect(self.windowWidth // 2 - 120, 360, 115, 45)
-        isSelected = self.humanGoesFirst
-        btnColor = MENU_ACCENT if isSelected else (BTN_HOVER if self.btnPlayFirst.collidepoint(mousePos) else BTN_NORMAL)
-        pygame.draw.rect(self.display, btnColor, self.btnPlayFirst, border_radius=8)
-        btnText = self.smallFont.render("First (Black)", True, TEXT_WHITE)
-        self.display.blit(btnText, btnText.get_rect(center=self.btnPlayFirst.center))
-
-        # Second player (White) button
-        self.btnPlaySecond = pygame.Rect(self.windowWidth // 2 + 5, 360, 115, 45)
-        isSelected = not self.humanGoesFirst
-        btnColor = MENU_ACCENT if isSelected else (BTN_HOVER if self.btnPlaySecond.collidepoint(mousePos) else BTN_NORMAL)
-        pygame.draw.rect(self.display, btnColor, self.btnPlaySecond, border_radius=8)
-        btnText = self.smallFont.render("Second (White)", True, TEXT_WHITE)
-        self.display.blit(btnText, btnText.get_rect(center=self.btnPlaySecond.center))
-
-        # Start button
-        self.btnStart = pygame.Rect(self.windowWidth // 2 - 80, 440, 160, 50)
-        btnColor = MENU_ACCENT if self.btnStart.collidepoint(mousePos) else BTN_NORMAL
-        pygame.draw.rect(self.display, btnColor, self.btnStart, border_radius=10)
-        btnText = self.normalFont.render("Start Game", True, TEXT_WHITE)
-        self.display.blit(btnText, btnText.get_rect(center=self.btnStart.center))
 
     def renderBoard(self):
         """Render the game board"""
@@ -238,25 +233,26 @@ class GomokuInterface:
         # Restart button
         btnColor = BTN_HOVER if self.btnRestart.collidepoint(mousePos) else BTN_NORMAL
         pygame.draw.rect(self.display, btnColor, self.btnRestart, border_radius=5)
-        restartText = self.smallFont.render("Restart", True, TEXT_WHITE)
+        restartText = self.smallFont.render("重新开始", True, TEXT_WHITE)
         self.display.blit(restartText, restartText.get_rect(center=self.btnRestart.center))
 
         # Menu button
         btnColor = BTN_HOVER if self.btnMenu.collidepoint(mousePos) else BTN_NORMAL
         pygame.draw.rect(self.display, btnColor, self.btnMenu, border_radius=5)
-        menuText = self.smallFont.render("Menu", True, TEXT_WHITE)
+        menuText = self.smallFont.render("返回菜单", True, TEXT_WHITE)
         self.display.blit(menuText, menuText.get_rect(center=self.btnMenu.center))
 
     def resetGame(self):
         """Reset the game to initial state"""
+        # 黑方(玩家1)总是先手
+        # humanGoesFirst=True: 人类执黑(1)，AI执白(2)
+        # humanGoesFirst=False: AI执黑(1)，人类执白(2)
         if self.gameMode == 'human_vs_ai':
-            startPlayer = 0 if self.humanGoesFirst else 1
             self.humanPlayerId = 1 if self.humanGoesFirst else 2
             self.aiPlayerId = 2 if self.humanGoesFirst else 1
-        else:
-            startPlayer = 0
 
-        self.gameState.initState(startPlayer)
+        # 黑方总是先手
+        self.gameState.initState(0)
         self.isGameOver = False
         self.victor = None
         self.lastMoveIdx = None
@@ -266,13 +262,13 @@ class GomokuInterface:
 
         if self.gameMode == 'human_vs_ai':
             if self.humanGoesFirst:
-                self.statusMessage = "Your turn (Black)"
+                self.statusMessage = "轮到你了（执黑）"
             else:
-                self.statusMessage = "AI thinking..."
+                self.statusMessage = "AI 思考中..."
                 self.isAiThinking = True
                 threading.Thread(target=self._executeAiMove, daemon=True).start()
         else:
-            self.statusMessage = "AI vs AI - Black's turn"
+            self.statusMessage = "AI 对战 - 黑方回合"
             self.isAiThinking = True
             threading.Thread(target=self._runAiVsAi, daemon=True).start()
 
@@ -289,14 +285,14 @@ class GomokuInterface:
             self.isGameOver = True
             self.victor = winner
             if winner == -1:
-                self.statusMessage = "Draw!"
+                self.statusMessage = "平局！"
             elif self.gameMode == 'human_vs_ai':
                 if winner == self.humanPlayerId:
-                    self.statusMessage = "You Win!"
+                    self.statusMessage = "恭喜你赢了！"
                 else:
-                    self.statusMessage = "AI Wins!"
+                    self.statusMessage = "AI 获胜！"
             else:
-                self.statusMessage = f"Player {winner} ({'Black' if winner == 1 else 'White'}) Wins!"
+                self.statusMessage = f"{'黑方' if winner == 1 else '白方'}获胜！"
             return True
         return False
 
@@ -312,7 +308,7 @@ class GomokuInterface:
             self.moveLog.append(moveIdx)
 
             if not self._checkGameEnd():
-                self.statusMessage = "AI thinking..."
+                self.statusMessage = "AI 思考中..."
                 self.isAiThinking = True
                 threading.Thread(target=self._executeAiMove, daemon=True).start()
 
@@ -327,8 +323,8 @@ class GomokuInterface:
         self.isAiThinking = False
 
         if not self._checkGameEnd():
-            pieceColor = "Black" if self.gameState.activePlayer == 1 else "White"
-            self.statusMessage = f"Your turn ({pieceColor})"
+            pieceColor = "黑" if self.gameState.activePlayer == 1 else "白"
+            self.statusMessage = f"轮到你了（执{pieceColor}）"
 
     def _runAiVsAi(self):
         """Run AI vs AI game"""
@@ -339,8 +335,8 @@ class GomokuInterface:
             currentPlayer = self.gameState.activePlayer
             agent = self.aiAgent1 if currentPlayer == 1 else self.aiAgent2
 
-            pieceColor = "Black" if currentPlayer == 1 else "White"
-            self.statusMessage = f"AI ({pieceColor}) thinking..."
+            pieceColor = "黑方" if currentPlayer == 1 else "白方"
+            self.statusMessage = f"AI（{pieceColor}）思考中..."
 
             moveIdx = agent.selectMove(self.gameState)
             self.gameState.applyMove(moveIdx)
@@ -368,16 +364,15 @@ class GomokuInterface:
                     mouseX, mouseY = event.pos
 
                     if self.showingMenu:
-                        # Menu button handling
-                        if self.btnHumanVsAi.collidepoint(mouseX, mouseY):
+                        # Menu button handling - click to start directly
+                        if self.btnHumanFirst.collidepoint(mouseX, mouseY):
                             self.gameMode = 'human_vs_ai'
-                        elif self.btnAiVsAi.collidepoint(mouseX, mouseY):
-                            self.gameMode = 'ai_vs_ai'
-                        elif self.btnPlayFirst.collidepoint(mouseX, mouseY):
                             self.humanGoesFirst = True
-                        elif self.btnPlaySecond.collidepoint(mouseX, mouseY):
+                            self.showingMenu = False
+                            self.resetGame()
+                        elif self.btnHumanSecond.collidepoint(mouseX, mouseY):
+                            self.gameMode = 'human_vs_ai'
                             self.humanGoesFirst = False
-                        elif self.btnStart.collidepoint(mouseX, mouseY) and self.gameMode:
                             self.showingMenu = False
                             self.resetGame()
                     else:

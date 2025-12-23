@@ -7,7 +7,6 @@ build/
 .cache/
 .env
 .DS_Store
-*.model
 *.log
 .idea/
 *.egg-info/

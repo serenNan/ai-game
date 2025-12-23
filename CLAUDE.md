@@ -8,81 +8,85 @@ AlphaZero-Gomoku is a Python implementation of the AlphaZero algorithm for Gomok
 
 ## Commands
 
-### Play against trained AI
+### Play with GUI
 ```bash
-python human_play.py
+python main.py
 ```
-Uses pure NumPy inference with pre-trained model (`best_policy_8_8_5.model`).
+Launches Pygame GUI with Human vs AI and AI vs AI modes. Uses pure NumPy inference with pre-trained model (`best_policy_8_8_5.model`).
 
 ### Train from scratch
 ```bash
-python train.py
+python trainer.py
 ```
-Default uses Theano/Lasagne. To use a different framework, modify the import in `train.py`:
+Default uses Theano/Lasagne. To use a different framework, modify the import in `trainer.py`:
 ```python
 # Choose one:
-from policy_value_net import PolicyValueNet              # Theano/Lasagne (default)
-from policy_value_net_pytorch import PolicyValueNet      # PyTorch
-from policy_value_net_tensorflow import PolicyValueNet   # TensorFlow
-from policy_value_net_keras import PolicyValueNet        # Keras
+from model_theano import NeuralNetworkEvaluator  # Theano/Lasagne (default)
+from model_torch import NeuralNetworkEvaluator   # PyTorch
+from model_tf import NeuralNetworkEvaluator      # TensorFlow
+from model_keras import NeuralNetworkEvaluator   # Keras
 ```
 
 ## Architecture
 
 ### Core Components
 
-**Game Engine** (`game.py`):
-- `Board`: Game state management, legal moves, winner detection
-- `Game`: Game flow orchestration, self-play data collection
+**Game Engine** (`board.py`):
+- `GameState`: Board state management, legal moves, winner detection
+- `GameController`: Game flow orchestration, self-play data collection
 - Board state represented as 4 channels: current pieces, opponent pieces, last move, color to play
 
-**MCTS** (`mcts_alphaZero.py`):
-- `TreeNode`: UCB1 selection with prior probabilities from policy network
-- `MCTS`: Monte Carlo Tree Search with neural network guidance
-- `MCTSPlayer`: AI player interface with optional Dirichlet noise for self-play exploration
+**MCTS with Neural Network** (`neural_search.py`):
+- `SearchNode`: UCB1 selection with prior probabilities from policy network
+- `MonteCarloTreeSearch`: MCTS with neural network guidance
+- `TreeSearchAgent`: AI player interface with optional Dirichlet noise for self-play exploration
 
-**Pure MCTS** (`mcts_pure.py`):
-- Baseline MCTS without neural network (uniform policy rollouts)
-- Used for evaluation during training
+**Pure MCTS** (`random_search.py`):
+- `PureMonteCarloSearch`: Baseline MCTS without neural network (random rollouts)
+- `PureSearchAgent`: Used for evaluation during training
 
 **Policy-Value Networks**:
 | File | Framework | Notes |
 |------|-----------|-------|
-| `policy_value_net.py` | Theano/Lasagne | Default, pre-trained models use this |
-| `policy_value_net_pytorch.py` | PyTorch | GPU support |
-| `policy_value_net_tensorflow.py` | TensorFlow | GPU support |
-| `policy_value_net_keras.py` | Keras | - |
-| `policy_value_net_numpy.py` | NumPy only | Inference only, loads Theano weights |
+| `model_theano.py` | Theano/Lasagne | Default, pre-trained models use this |
+| `model_torch.py` | PyTorch | GPU support |
+| `model_tf.py` | TensorFlow | GPU support |
+| `model_keras.py` | Keras | - |
+| `model_inference.py` | NumPy only | Inference only, loads Theano weights |
 
-### Training Pipeline (`train.py`)
+**GUI** (`main.py`):
+- Pygame-based interface supporting Human vs AI and AI vs AI modes
+- Player order selection (first/second)
+
+### Training Pipeline (`trainer.py`)
 
 ```
 Self-Play → Data Augmentation (8x via rotations/flips) → Policy Update → Evaluation → Checkpoint
 ```
 
-Key parameters in `TrainPipeline`:
-- `board_width`, `board_height`, `n_in_row`: Board configuration
-- `n_playout=400`: MCTS simulations per move
-- `batch_size=512`, `buffer_size=10000`: Training buffer
-- `kl_targ=0.02`: KL-divergence target for early stopping
-- `check_freq=50`: Evaluation frequency
+Key parameters in `TrainingManager`:
+- `boardCols`, `boardRows`, `winLength`: Board configuration (default 6x6, 4-in-row)
+- `numSimulations=400`: MCTS simulations per move
+- `miniBatchSize=512`, `replayBufferSize=10000`: Training buffer
+- `klTarget=0.02`: KL-divergence target for early stopping
+- `evaluationInterval=50`: Evaluation frequency
 
 ### Data Flow
 
-1. `Game.start_self_play()` generates (state, mcts_probs, winner) tuples
-2. States augmented 8-fold via `get_equi_data()`
-3. `PolicyValueNet.train_step()` updates network
+1. `GameController.runSelfPlay()` generates (state, mcts_probs, winner) tuples
+2. States augmented 8-fold via `augmentData()`
+3. `NeuralNetworkEvaluator.trainOnBatch()` updates network
 4. MCTS tree reused across moves within a game for efficiency
 
 ## Pre-trained Models
 
-- `best_policy_6_6_4.model`: 6x6 board, 4-in-a-row
-- `best_policy_8_8_5.model`: 8x8 board, 5-in-a-row (standard Gomoku)
+- `6_6_4.model`: 6x6 board, 4-in-a-row
+- `8_8_5.model`: 8x8 board, 5-in-a-row (standard Gomoku)
 
-Models are in Theano/Lasagne format. `policy_value_net_numpy.py` can load these for inference without Theano installed.
+Models are in Theano/Lasagne format. `model_inference.py` can load these for inference without Theano installed.
 
 ## Dependencies
 
-**Playing only**: NumPy >= 1.11
+**Playing only**: NumPy >= 1.11, Pygame
 
 **Training**: Choose one deep learning framework (Theano+Lasagne, PyTorch, TensorFlow, or Keras)
