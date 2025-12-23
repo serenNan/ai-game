@@ -10,13 +10,13 @@ from __future__ import print_function
 import random
 import numpy as np
 from collections import defaultdict, deque
-from game import GameState, GameController
-from mcts_pure import PureSearchAgent
-from mcts_alphaZero import TreeSearchAgent
-from policy_value_net import NeuralNetworkEvaluator  # Theano and Lasagne
-# from policy_value_net_pytorch import NeuralNetworkEvaluator  # Pytorch
-# from policy_value_net_tensorflow import NeuralNetworkEvaluator  # Tensorflow
-# from policy_value_net_keras import NeuralNetworkEvaluator  # Keras
+from board import GameState, GameController
+from random_search import PureSearchAgent
+from neural_search import TreeSearchAgent
+from model_theano import NeuralNetworkEvaluator  # Theano and Lasagne
+# from model_torch import NeuralNetworkEvaluator  # Pytorch
+# from model_tf import NeuralNetworkEvaluator  # Tensorflow
+# from model_keras import NeuralNetworkEvaluator  # Keras
 
 
 class TrainingManager():

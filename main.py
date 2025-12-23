@@ -10,9 +10,9 @@ import pygame
 import pickle
 import threading
 import time
-from game import GameState
-from mcts_alphaZero import TreeSearchAgent
-from policy_value_net_numpy import NumpyNetworkEvaluator
+from board import GameState
+from neural_search import TreeSearchAgent
+from model_inference import NumpyNetworkEvaluator
 
 # Color palette
 BOARD_BG = (220, 179, 92)
@@ -92,7 +92,7 @@ class GomokuInterface:
             print(f"AI model loaded: {modelFile}")
         except FileNotFoundError:
             print(f"Model file {modelFile} not found, using pure MCTS")
-            from mcts_pure import PureSearchAgent
+            from random_search import PureSearchAgent
             self.aiAgent1 = PureSearchAgent(explorationWeight=5, numSimulations=1000)
             self.aiAgent2 = PureSearchAgent(explorationWeight=5, numSimulations=1000)
 
