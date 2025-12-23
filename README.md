@@ -414,22 +414,6 @@ elif klDivergence < self.klTarget / 2:
 
 ---
 
-### 9. compare_models.py - 模型对比工具
-
-**功能**：对比两个模型的强弱。
-
-**使用方法**：
-```python
-compareModels(
-    'best_policy_8_8_5.model',   # 模型1路径
-    'best_policy_8_8_5.model2',  # 模型2路径
-    numGames=10,                 # 对战局数
-    numSimulations=200           # 每步搜索次数
-)
-```
-
-**对战规则**：交替先后手，统计胜率。
-
 ---
 
 ## 预训练模型
@@ -445,11 +429,9 @@ compareModels(
 
 ## 训练建议
 
-1. **从小棋盘开始**：6x6 + 4子连珠，约 500-1000 局自我对弈，耗时约 2 小时
+1. **从小棋盘开始**：建议先用 6x6 + 4子连珠进行训练测试
 
-2. **8x8 棋盘**：8x8 + 5子连珠，需要 2000-3000 局自我对弈，耗时约 2 天
-
-3. **使用 GPU**：修改 `model_torch.py` 中 `useGpu=True` 加速训练
+2. **使用 GPU**：修改 `model_torch.py` 中 `useGpu=True` 加速训练
 
 ## 许可证
 
