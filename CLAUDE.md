@@ -81,7 +81,7 @@ Key parameters in `TrainingManager`:
 ## Pre-trained Models
 
 - `6_6_4.model`: 6x6 board, 4-in-a-row
-- `8_8_5.model`: 8x8 board, 5-in-a-row (standard Gomoku)
+- `8_8_5.model`: 8x8 board, 5-in-a-row
 
 Models are in Theano/Lasagne format. `model_inference.py` can load these for inference without Theano installed.
 
