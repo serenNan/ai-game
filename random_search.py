@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Pure Monte Carlo Tree Search implementation without neural network
-Uses random rollouts for position evaluation
-
-@author: Kevin Chen
+纯蒙特卡洛树搜索实现（不使用神经网络）
+使用随机模拟进行局面评估
 """
 
 import numpy as np

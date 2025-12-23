@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Policy-Value Network implementation using Theano and Lasagne
-Default implementation for training and inference
-
-@author: Kevin Chen
+使用 Theano 和 Lasagne 实现的策略价值网络
+默认用于训练和推理的实现
 """
 
 from __future__ import print_function

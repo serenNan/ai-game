@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Policy-Value Network implementation using TensorFlow
-Tested with TensorFlow 1.4 and 1.5
-
-@author: Kevin Chen
+使用 TensorFlow 实现的策略价值网络
+已在 TensorFlow 1.4 和 1.5 版本测试通过
 """
 
 import numpy as np

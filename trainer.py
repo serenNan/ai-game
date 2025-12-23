@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-AlphaZero training pipeline for Gomoku
-Implements self-play, data augmentation, and iterative policy improvement
-
-@author: Kevin Chen
+五子棋 AlphaZero 训练流水线
+实现自我对弈、数据增强和迭代策略改进
 """
 
 from __future__ import print_function

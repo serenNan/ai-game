@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Gomoku game engine implementation
-Handles board state management and game flow control
-
-@author: Kevin Chen
+五子棋游戏引擎实现
+处理棋盘状态管理和游戏流程控制
 """
 
 from __future__ import print_function

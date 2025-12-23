@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Policy-Value Network implementation using Keras
-Tested with Keras 2.0.5 and tensorflow-gpu 1.2.1
-
-@author: Kevin Chen
+使用 Keras 实现的策略价值网络
+已在 Keras 2.0.5 和 tensorflow-gpu 1.2.1 版本测试通过
 """
 
 from __future__ import print_function

@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Monte Carlo Tree Search implementation following AlphaGo Zero methodology
-Uses policy-value network for tree guidance and leaf evaluation
-
-@author: Kevin Chen
+基于 AlphaGo Zero 方法论的蒙特卡洛树搜索实现
+使用策略价值网络进行树搜索引导和叶节点评估
 """
 
 import numpy as np

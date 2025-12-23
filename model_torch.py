@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Policy-Value Network implementation using PyTorch
-Provides neural network for MCTS guidance in AlphaZero
-
-@author: Kevin Chen
+使用 PyTorch 实现的策略价值网络
+为 AlphaZero 的蒙特卡洛树搜索提供神经网络引导
 """
 
 import torch

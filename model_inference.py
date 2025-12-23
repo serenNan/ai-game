@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Policy-Value Network implementation using pure NumPy
-Enables inference without deep learning framework dependencies
-
-@author: Kevin Chen
+使用纯 NumPy 实现的策略价值网络
+无需深度学习框架依赖即可进行推理
 """
 
 from __future__ import print_function

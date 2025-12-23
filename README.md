@@ -31,10 +31,6 @@ Pygame
 ## 安装
 
 ```bash
-# 克隆项目
-git clone <repository_url>
-cd ai-game
-
 # 安装依赖
 pip install numpy pygame
 

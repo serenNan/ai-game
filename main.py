@@ -1,9 +1,6 @@
-# -*- coding: utf-8 -*-
 """
-Pygame GUI for AlphaZero Gomoku
-Supports Human vs AI and AI vs AI modes with first/second player selection
-
-@author: Kevin Chen
+AlphaZero 五子棋 Pygame 图形界面
+支持人机对战和机器对战模式，可选择先手或后手
 """
 
 import pygame
