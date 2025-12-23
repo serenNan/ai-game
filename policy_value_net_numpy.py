@@ -1,115 +1,109 @@
 # -*- coding: utf-8 -*-
 """
-Implement the policy value network using numpy, so that we can play with the
-trained AI model without installing any DL framwork
+Policy-Value Network implementation using pure NumPy
+Enables inference without deep learning framework dependencies
 
-@author: Junxiao Song
+@author: Kevin Chen
 """
 
 from __future__ import print_function
 import numpy as np
 
 
-# some utility functions
-def softmax(x):
-    probs = np.exp(x - np.max(x))
-    probs /= np.sum(probs)
-    return probs
+def computeSoftmax(x):
+    probabilities = np.exp(x - np.max(x))
+    probabilities /= np.sum(probabilities)
+    return probabilities
 
 
-def relu(X):
-    out = np.maximum(X, 0)
-    return out
+def applyRelu(tensor):
+    return np.maximum(tensor, 0)
 
 
-def conv_forward(X, W, b, stride=1, padding=1):
-    n_filters, d_filter, h_filter, w_filter = W.shape
-    # theano conv2d flips the filters (rotate 180 degree) first
-    # while doing the calculation
-    W = W[:, :, ::-1, ::-1]
-    n_x, d_x, h_x, w_x = X.shape
-    h_out = (h_x - h_filter + 2 * padding) / stride + 1
-    w_out = (w_x - w_filter + 2 * padding) / stride + 1
-    h_out, w_out = int(h_out), int(w_out)
-    X_col = im2col_indices(X, h_filter, w_filter,
-                           padding=padding, stride=stride)
-    W_col = W.reshape(n_filters, -1)
-    out = (np.dot(W_col, X_col).T + b).T
-    out = out.reshape(n_filters, h_out, w_out, n_x)
-    out = out.transpose(3, 0, 1, 2)
-    return out
+def convolutionForward(inputTensor, weights, bias, stride=1, padding=1):
+    numFilters, filterDepth, filterHeight, filterWidth = weights.shape
+    # Theano conv2d rotates filters 180 degrees
+    weights = weights[:, :, ::-1, ::-1]
+    batchSize, inputDepth, inputHeight, inputWidth = inputTensor.shape
+    outputHeight = (inputHeight - filterHeight + 2 * padding) / stride + 1
+    outputWidth = (inputWidth - filterWidth + 2 * padding) / stride + 1
+    outputHeight, outputWidth = int(outputHeight), int(outputWidth)
+    colMatrix = imageToColumns(inputTensor, filterHeight, filterWidth,
+                               padding=padding, stride=stride)
+    weightMatrix = weights.reshape(numFilters, -1)
+    output = (np.dot(weightMatrix, colMatrix).T + bias).T
+    output = output.reshape(numFilters, outputHeight, outputWidth, batchSize)
+    output = output.transpose(3, 0, 1, 2)
+    return output
 
 
-def fc_forward(X, W, b):
-    out = np.dot(X, W) + b
-    return out
+def fullyConnectedForward(inputTensor, weights, bias):
+    return np.dot(inputTensor, weights) + bias
 
 
-def get_im2col_indices(x_shape, field_height,
-                       field_width, padding=1, stride=1):
-    # First figure out what the size of the output should be
-    N, C, H, W = x_shape
-    assert (H + 2 * padding - field_height) % stride == 0
-    assert (W + 2 * padding - field_width) % stride == 0
-    out_height = int((H + 2 * padding - field_height) / stride + 1)
-    out_width = int((W + 2 * padding - field_width) / stride + 1)
+def computeIm2ColIndices(tensorShape, filterHeight,
+                         filterWidth, padding=1, stride=1):
+    batchSize, channels, height, width = tensorShape
+    assert (height + 2 * padding - filterHeight) % stride == 0
+    assert (width + 2 * padding - filterWidth) % stride == 0
+    outputHeight = int((height + 2 * padding - filterHeight) / stride + 1)
+    outputWidth = int((width + 2 * padding - filterWidth) / stride + 1)
 
-    i0 = np.repeat(np.arange(field_height), field_width)
-    i0 = np.tile(i0, C)
-    i1 = stride * np.repeat(np.arange(out_height), out_width)
-    j0 = np.tile(np.arange(field_width), field_height * C)
-    j1 = stride * np.tile(np.arange(out_width), out_height)
-    i = i0.reshape(-1, 1) + i1.reshape(1, -1)
-    j = j0.reshape(-1, 1) + j1.reshape(1, -1)
+    rowIdx0 = np.repeat(np.arange(filterHeight), filterWidth)
+    rowIdx0 = np.tile(rowIdx0, channels)
+    rowIdx1 = stride * np.repeat(np.arange(outputHeight), outputWidth)
+    colIdx0 = np.tile(np.arange(filterWidth), filterHeight * channels)
+    colIdx1 = stride * np.tile(np.arange(outputWidth), outputHeight)
+    rowIndices = rowIdx0.reshape(-1, 1) + rowIdx1.reshape(1, -1)
+    colIndices = colIdx0.reshape(-1, 1) + colIdx1.reshape(1, -1)
 
-    k = np.repeat(np.arange(C), field_height * field_width).reshape(-1, 1)
+    channelIndices = np.repeat(np.arange(channels), filterHeight * filterWidth).reshape(-1, 1)
 
-    return (k.astype(int), i.astype(int), j.astype(int))
+    return (channelIndices.astype(int), rowIndices.astype(int), colIndices.astype(int))
 
 
-def im2col_indices(x, field_height, field_width, padding=1, stride=1):
-    """ An implementation of im2col based on some fancy indexing """
-    # Zero-pad the input
+def imageToColumns(inputTensor, filterHeight, filterWidth, padding=1, stride=1):
+    """Convert image patches to column matrix for efficient convolution"""
     p = padding
-    x_padded = np.pad(x, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
+    paddedInput = np.pad(inputTensor, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
 
-    k, i, j = get_im2col_indices(x.shape, field_height,
-                                 field_width, padding, stride)
+    channelIdx, rowIdx, colIdx = computeIm2ColIndices(inputTensor.shape, filterHeight,
+                                                      filterWidth, padding, stride)
 
-    cols = x_padded[:, k, i, j]
-    C = x.shape[1]
-    cols = cols.transpose(1, 2, 0).reshape(field_height * field_width * C, -1)
-    return cols
+    columns = paddedInput[:, channelIdx, rowIdx, colIdx]
+    channels = inputTensor.shape[1]
+    columns = columns.transpose(1, 2, 0).reshape(filterHeight * filterWidth * channels, -1)
+    return columns
 
 
-class PolicyValueNetNumpy():
-    """policy-value network in numpy """
-    def __init__(self, board_width, board_height, net_params):
-        self.board_width = board_width
-        self.board_height = board_height
-        self.params = net_params
+class NumpyNetworkEvaluator():
+    """Policy-value network using pure NumPy for inference"""
 
-    def policy_value_fn(self, board):
+    def __init__(self, boardCols, boardRows, networkParams):
+        self.boardCols = boardCols
+        self.boardRows = boardRows
+        self.weights = networkParams
+
+    def evaluatePosition(self, gameState):
         """
-        input: board
-        output: a list of (action, probability) tuples for each available
-        action and the score of the board state
+        Evaluate board position
+        Returns: (action, probability) tuples and position value
         """
-        legal_positions = board.availables
-        current_state = board.current_state()
+        validMoves = gameState.openPositions
+        currentState = gameState.getStateArray()
 
-        X = current_state.reshape(-1, 4, self.board_width, self.board_height)
-        # first 3 conv layers with ReLu nonlinearity
+        x = currentState.reshape(-1, 4, self.boardCols, self.boardRows)
+        # Three convolutional layers with ReLU
         for i in [0, 2, 4]:
-            X = relu(conv_forward(X, self.params[i], self.params[i+1]))
-        # policy head
-        X_p = relu(conv_forward(X, self.params[6], self.params[7], padding=0))
-        X_p = fc_forward(X_p.flatten(), self.params[8], self.params[9])
-        act_probs = softmax(X_p)
-        # value head
-        X_v = relu(conv_forward(X, self.params[10],
-                                self.params[11], padding=0))
-        X_v = relu(fc_forward(X_v.flatten(), self.params[12], self.params[13]))
-        value = np.tanh(fc_forward(X_v, self.params[14], self.params[15]))[0]
-        act_probs = zip(legal_positions, act_probs.flatten()[legal_positions])
-        return act_probs, value
+            x = applyRelu(convolutionForward(x, self.weights[i], self.weights[i + 1]))
+        # Policy head
+        policyX = applyRelu(convolutionForward(x, self.weights[6], self.weights[7], padding=0))
+        policyX = fullyConnectedForward(policyX.flatten(), self.weights[8], self.weights[9])
+        actionProbs = computeSoftmax(policyX)
+        # Value head
+        valueX = applyRelu(convolutionForward(x, self.weights[10],
+                                              self.weights[11], padding=0))
+        valueX = applyRelu(fullyConnectedForward(valueX.flatten(), self.weights[12], self.weights[13]))
+        positionValue = np.tanh(fullyConnectedForward(valueX, self.weights[14], self.weights[15]))[0]
+        actionProbs = zip(validMoves, actionProbs.flatten()[validMoves])
+        return actionProbs, positionValue

@@ -1,27 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-An implementation of the policyValueNet in Tensorflow
-Tested in Tensorflow 1.4 and 1.5
+Policy-Value Network implementation using TensorFlow
+Tested with TensorFlow 1.4 and 1.5
 
-@author: Xiang Zhong
+@author: Kevin Chen
 """
 
 import numpy as np
 import tensorflow as tf
 
 
-class PolicyValueNet():
-    def __init__(self, board_width, board_height, model_file=None):
-        self.board_width = board_width
-        self.board_height = board_height
+class NeuralNetworkEvaluator():
+    def __init__(self, boardCols, boardRows, modelPath=None):
+        self.boardCols = boardCols
+        self.boardRows = boardRows
 
-        # Define the tensorflow neural network
-        # 1. Input:
-        self.input_states = tf.placeholder(
-                tf.float32, shape=[None, 4, board_height, board_width])
-        self.input_state = tf.transpose(self.input_states, [0, 2, 3, 1])
-        # 2. Common Networks Layers
-        self.conv1 = tf.layers.conv2d(inputs=self.input_state,
+        # Input placeholders
+        self.inputStates = tf.placeholder(
+            tf.float32, shape=[None, 4, boardRows, boardCols])
+        self.inputStateTrans = tf.transpose(self.inputStates, [0, 2, 3, 1])
+
+        # Shared convolutional layers
+        self.conv1 = tf.layers.conv2d(inputs=self.inputStateTrans,
                                       filters=32, kernel_size=[3, 3],
                                       padding="same", data_format="channels_last",
                                       activation=tf.nn.relu)
@@ -33,113 +33,98 @@ class PolicyValueNet():
                                       kernel_size=[3, 3], padding="same",
                                       data_format="channels_last",
                                       activation=tf.nn.relu)
-        # 3-1 Action Networks
-        self.action_conv = tf.layers.conv2d(inputs=self.conv3, filters=4,
-                                            kernel_size=[1, 1], padding="same",
-                                            data_format="channels_last",
-                                            activation=tf.nn.relu)
-        # Flatten the tensor
-        self.action_conv_flat = tf.reshape(
-                self.action_conv, [-1, 4 * board_height * board_width])
-        # 3-2 Full connected layer, the output is the log probability of moves
-        # on each slot on the board
-        self.action_fc = tf.layers.dense(inputs=self.action_conv_flat,
-                                         units=board_height * board_width,
-                                         activation=tf.nn.log_softmax)
-        # 4 Evaluation Networks
-        self.evaluation_conv = tf.layers.conv2d(inputs=self.conv3, filters=2,
-                                                kernel_size=[1, 1],
-                                                padding="same",
-                                                data_format="channels_last",
-                                                activation=tf.nn.relu)
-        self.evaluation_conv_flat = tf.reshape(
-                self.evaluation_conv, [-1, 2 * board_height * board_width])
-        self.evaluation_fc1 = tf.layers.dense(inputs=self.evaluation_conv_flat,
-                                              units=64, activation=tf.nn.relu)
-        # output the score of evaluation on current state
-        self.evaluation_fc2 = tf.layers.dense(inputs=self.evaluation_fc1,
-                                              units=1, activation=tf.nn.tanh)
 
-        # Define the Loss function
-        # 1. Label: the array containing if the game wins or not for each state
-        self.labels = tf.placeholder(tf.float32, shape=[None, 1])
-        # 2. Predictions: the array containing the evaluation score of each state
-        # which is self.evaluation_fc2
-        # 3-1. Value Loss function
-        self.value_loss = tf.losses.mean_squared_error(self.labels,
-                                                       self.evaluation_fc2)
-        # 3-2. Policy Loss function
-        self.mcts_probs = tf.placeholder(
-                tf.float32, shape=[None, board_height * board_width])
-        self.policy_loss = tf.negative(tf.reduce_mean(
-                tf.reduce_sum(tf.multiply(self.mcts_probs, self.action_fc), 1)))
-        # 3-3. L2 penalty (regularization)
-        l2_penalty_beta = 1e-4
-        vars = tf.trainable_variables()
-        l2_penalty = l2_penalty_beta * tf.add_n(
-            [tf.nn.l2_loss(v) for v in vars if 'bias' not in v.name.lower()])
-        # 3-4 Add up to be the Loss function
-        self.loss = self.value_loss + self.policy_loss + l2_penalty
+        # Policy head
+        self.policyConv = tf.layers.conv2d(inputs=self.conv3, filters=4,
+                                           kernel_size=[1, 1], padding="same",
+                                           data_format="channels_last",
+                                           activation=tf.nn.relu)
+        self.policyFlat = tf.reshape(
+            self.policyConv, [-1, 4 * boardRows * boardCols])
+        self.policyOutput = tf.layers.dense(inputs=self.policyFlat,
+                                            units=boardRows * boardCols,
+                                            activation=tf.nn.log_softmax)
 
-        # Define the optimizer we use for training
-        self.learning_rate = tf.placeholder(tf.float32)
+        # Value head
+        self.valueConv = tf.layers.conv2d(inputs=self.conv3, filters=2,
+                                          kernel_size=[1, 1],
+                                          padding="same",
+                                          data_format="channels_last",
+                                          activation=tf.nn.relu)
+        self.valueFlat = tf.reshape(
+            self.valueConv, [-1, 2 * boardRows * boardCols])
+        self.valueFc1 = tf.layers.dense(inputs=self.valueFlat,
+                                        units=64, activation=tf.nn.relu)
+        self.valueOutput = tf.layers.dense(inputs=self.valueFc1,
+                                           units=1, activation=tf.nn.tanh)
+
+        # Loss function components
+        self.targetOutcomes = tf.placeholder(tf.float32, shape=[None, 1])
+        self.valueLoss = tf.losses.mean_squared_error(self.targetOutcomes,
+                                                      self.valueOutput)
+        self.targetProbs = tf.placeholder(
+            tf.float32, shape=[None, boardRows * boardCols])
+        self.policyLoss = tf.negative(tf.reduce_mean(
+            tf.reduce_sum(tf.multiply(self.targetProbs, self.policyOutput), 1)))
+
+        # L2 regularization
+        l2Weight = 1e-4
+        trainableVars = tf.trainable_variables()
+        l2Penalty = l2Weight * tf.add_n(
+            [tf.nn.l2_loss(v) for v in trainableVars if 'bias' not in v.name.lower()])
+        self.totalLoss = self.valueLoss + self.policyLoss + l2Penalty
+
+        # Optimizer
+        self.learningRate = tf.placeholder(tf.float32)
         self.optimizer = tf.train.AdamOptimizer(
-                learning_rate=self.learning_rate).minimize(self.loss)
+            learning_rate=self.learningRate).minimize(self.totalLoss)
 
-        # Make a session
+        # Session setup
         self.session = tf.Session()
 
-        # calc policy entropy, for monitoring only
-        self.entropy = tf.negative(tf.reduce_mean(
-                tf.reduce_sum(tf.exp(self.action_fc) * self.action_fc, 1)))
+        # Policy entropy for monitoring
+        self.policyEntropy = tf.negative(tf.reduce_mean(
+            tf.reduce_sum(tf.exp(self.policyOutput) * self.policyOutput, 1)))
 
         # Initialize variables
         init = tf.global_variables_initializer()
         self.session.run(init)
 
-        # For saving and restoring
+        # Model persistence
         self.saver = tf.train.Saver()
-        if model_file is not None:
-            self.restore_model(model_file)
+        if modelPath is not None:
+            self.loadCheckpoint(modelPath)
 
-    def policy_value(self, state_batch):
-        """
-        input: a batch of states
-        output: a batch of action probabilities and state values
-        """
-        log_act_probs, value = self.session.run(
-                [self.action_fc, self.evaluation_fc2],
-                feed_dict={self.input_states: state_batch}
-                )
-        act_probs = np.exp(log_act_probs)
-        return act_probs, value
+    def batchEvaluate(self, stateBatch):
+        """Evaluate a batch of states"""
+        logProbs, values = self.session.run(
+            [self.policyOutput, self.valueOutput],
+            feed_dict={self.inputStates: stateBatch})
+        actionProbs = np.exp(logProbs)
+        return actionProbs, values
 
-    def policy_value_fn(self, board):
-        """
-        input: board
-        output: a list of (action, probability) tuples for each available
-        action and the score of the board state
-        """
-        legal_positions = board.availables
-        current_state = np.ascontiguousarray(board.current_state().reshape(
-                -1, 4, self.board_width, self.board_height))
-        act_probs, value = self.policy_value(current_state)
-        act_probs = zip(legal_positions, act_probs[0][legal_positions])
-        return act_probs, value
+    def evaluatePosition(self, gameState):
+        """Evaluate single board position"""
+        validMoves = gameState.openPositions
+        currentState = np.ascontiguousarray(gameState.getStateArray().reshape(
+            -1, 4, self.boardCols, self.boardRows))
+        actionProbs, value = self.batchEvaluate(currentState)
+        actionProbs = zip(validMoves, actionProbs[0][validMoves])
+        return actionProbs, value
 
-    def train_step(self, state_batch, mcts_probs, winner_batch, lr):
-        """perform a training step"""
-        winner_batch = np.reshape(winner_batch, (-1, 1))
+    def trainOnBatch(self, stateBatch, targetProbs, targetOutcomes, learningRate):
+        """Execute one training step"""
+        targetOutcomes = np.reshape(targetOutcomes, (-1, 1))
         loss, entropy, _ = self.session.run(
-                [self.loss, self.entropy, self.optimizer],
-                feed_dict={self.input_states: state_batch,
-                           self.mcts_probs: mcts_probs,
-                           self.labels: winner_batch,
-                           self.learning_rate: lr})
+            [self.totalLoss, self.policyEntropy, self.optimizer],
+            feed_dict={self.inputStates: stateBatch,
+                       self.targetProbs: targetProbs,
+                       self.targetOutcomes: targetOutcomes,
+                       self.learningRate: learningRate})
         return loss, entropy
 
-    def save_model(self, model_path):
-        self.saver.save(self.session, model_path)
+    def saveCheckpoint(self, filePath):
+        self.saver.save(self.session, filePath)
 
-    def restore_model(self, model_path):
-        self.saver.restore(self.session, model_path)
+    def loadCheckpoint(self, filePath):
+        self.saver.restore(self.session, filePath)

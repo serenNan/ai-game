@@ -1,6 +1,15 @@
 *.pyc
 __pycache__/
-.vscode
-.history
+.vscode/
+.history/
+screenshots/
+build/
+.cache/
 .env
 .DS_Store
+*.model
+*.log
+.idea/
+*.egg-info/
+dist/
+*.so

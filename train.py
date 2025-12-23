@@ -1,195 +1,188 @@
 # -*- coding: utf-8 -*-
 """
-An implementation of the training pipeline of AlphaZero for Gomoku
+AlphaZero training pipeline for Gomoku
+Implements self-play, data augmentation, and iterative policy improvement
 
-@author: Junxiao Song
+@author: Kevin Chen
 """
 
 from __future__ import print_function
 import random
 import numpy as np
 from collections import defaultdict, deque
-from game import Board, Game
-from mcts_pure import MCTSPlayer as MCTS_Pure
-from mcts_alphaZero import MCTSPlayer
-from policy_value_net import PolicyValueNet  # Theano and Lasagne
-# from policy_value_net_pytorch import PolicyValueNet  # Pytorch
-# from policy_value_net_tensorflow import PolicyValueNet # Tensorflow
-# from policy_value_net_keras import PolicyValueNet # Keras
+from game import GameState, GameController
+from mcts_pure import PureSearchAgent
+from mcts_alphaZero import TreeSearchAgent
+from policy_value_net import NeuralNetworkEvaluator  # Theano and Lasagne
+# from policy_value_net_pytorch import NeuralNetworkEvaluator  # Pytorch
+# from policy_value_net_tensorflow import NeuralNetworkEvaluator  # Tensorflow
+# from policy_value_net_keras import NeuralNetworkEvaluator  # Keras
 
 
-class TrainPipeline():
-    def __init__(self, init_model=None):
-        # params of the board and the game
-        self.board_width = 6
-        self.board_height = 6
-        self.n_in_row = 4
-        self.board = Board(width=self.board_width,
-                           height=self.board_height,
-                           n_in_row=self.n_in_row)
-        self.game = Game(self.board)
-        # training params
-        self.learn_rate = 2e-3
-        self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
-        self.temp = 1.0  # the temperature param
-        self.n_playout = 400  # num of simulations for each move
-        self.c_puct = 5
-        self.buffer_size = 10000
-        self.batch_size = 512  # mini-batch size for training
-        self.data_buffer = deque(maxlen=self.buffer_size)
-        self.play_batch_size = 1
-        self.epochs = 5  # num of train_steps for each update
-        self.kl_targ = 0.02
-        self.check_freq = 50
-        self.game_batch_num = 1500
-        self.best_win_ratio = 0.0
-        # num of simulations used for the pure mcts, which is used as
-        # the opponent to evaluate the trained policy
-        self.pure_mcts_playout_num = 1000
-        if init_model:
-            # start training from an initial policy-value net
-            self.policy_value_net = PolicyValueNet(self.board_width,
-                                                   self.board_height,
-                                                   model_file=init_model)
+class TrainingManager():
+    def __init__(self, modelPath=None):
+        # Board configuration
+        self.boardCols = 6
+        self.boardRows = 6
+        self.winLength = 4
+        self.gameState = GameState(width=self.boardCols,
+                                   height=self.boardRows,
+                                   n_in_row=self.winLength)
+        self.controller = GameController(self.gameState)
+        # Training hyperparameters
+        self.baseLearningRate = 2e-3
+        self.learningRateScale = 1.0
+        self.explorationTemp = 1.0
+        self.numSimulations = 400
+        self.explorationWeight = 5
+        self.replayBufferSize = 10000
+        self.miniBatchSize = 512
+        self.replayBuffer = deque(maxlen=self.replayBufferSize)
+        self.gamesPerBatch = 1
+        self.trainingEpochs = 5
+        self.klTarget = 0.02
+        self.evaluationInterval = 50
+        self.totalBatches = 1500
+        self.bestWinRate = 0.0
+        # Baseline opponent strength
+        self.baselineSimulations = 1000
+        if modelPath:
+            self.neuralNetwork = NeuralNetworkEvaluator(self.boardCols,
+                                                        self.boardRows,
+                                                        modelPath=modelPath)
         else:
-            # start training from a new policy-value net
-            self.policy_value_net = PolicyValueNet(self.board_width,
-                                                   self.board_height)
-        self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
-                                      c_puct=self.c_puct,
-                                      n_playout=self.n_playout,
-                                      is_selfplay=1)
+            self.neuralNetwork = NeuralNetworkEvaluator(self.boardCols,
+                                                        self.boardRows)
+        self.trainAgent = TreeSearchAgent(self.neuralNetwork.evaluatePosition,
+                                          explorationWeight=self.explorationWeight,
+                                          numSimulations=self.numSimulations,
+                                          selfPlayMode=1)
 
-    def get_equi_data(self, play_data):
-        """augment the data set by rotation and flipping
-        play_data: [(state, mcts_prob, winner_z), ..., ...]
+    def augmentData(self, gameData):
         """
-        extend_data = []
-        for state, mcts_prob, winner in play_data:
-            for i in [1, 2, 3, 4]:
-                # rotate counterclockwise
-                equi_state = np.array([np.rot90(s, i) for s in state])
-                equi_mcts_prob = np.rot90(np.flipud(
-                    mcts_prob.reshape(self.board_height, self.board_width)), i)
-                extend_data.append((equi_state,
-                                    np.flipud(equi_mcts_prob).flatten(),
-                                    winner))
-                # flip horizontally
-                equi_state = np.array([np.fliplr(s) for s in equi_state])
-                equi_mcts_prob = np.fliplr(equi_mcts_prob)
-                extend_data.append((equi_state,
-                                    np.flipud(equi_mcts_prob).flatten(),
-                                    winner))
-        return extend_data
+        Augment dataset with rotations and reflections.
+        gameData: [(state, moveProbs, outcome), ...]
+        """
+        augmentedData = []
+        for state, moveProbs, outcome in gameData:
+            for rotation in [1, 2, 3, 4]:
+                rotatedState = np.array([np.rot90(s, rotation) for s in state])
+                rotatedProbs = np.rot90(np.flipud(
+                    moveProbs.reshape(self.boardRows, self.boardCols)), rotation)
+                augmentedData.append((rotatedState,
+                                      np.flipud(rotatedProbs).flatten(),
+                                      outcome))
+                # Horizontal flip
+                flippedState = np.array([np.fliplr(s) for s in rotatedState])
+                flippedProbs = np.fliplr(rotatedProbs)
+                augmentedData.append((flippedState,
+                                      np.flipud(flippedProbs).flatten(),
+                                      outcome))
+        return augmentedData
 
-    def collect_selfplay_data(self, n_games=1):
-        """collect self-play data for training"""
-        for i in range(n_games):
-            winner, play_data = self.game.start_self_play(self.mcts_player,
-                                                          temp=self.temp)
-            play_data = list(play_data)[:]
-            self.episode_len = len(play_data)
-            # augment the data
-            play_data = self.get_equi_data(play_data)
-            self.data_buffer.extend(play_data)
+    def generateSelfPlayData(self, numGames=1):
+        """Generate training data through self-play"""
+        for _ in range(numGames):
+            victor, gameData = self.controller.runSelfPlay(self.trainAgent,
+                                                           temperature=self.explorationTemp)
+            gameData = list(gameData)[:]
+            self.episodeLength = len(gameData)
+            augmentedData = self.augmentData(gameData)
+            self.replayBuffer.extend(augmentedData)
 
-    def policy_update(self):
-        """update the policy-value net"""
-        mini_batch = random.sample(self.data_buffer, self.batch_size)
-        state_batch = [data[0] for data in mini_batch]
-        mcts_probs_batch = [data[1] for data in mini_batch]
-        winner_batch = [data[2] for data in mini_batch]
-        old_probs, old_v = self.policy_value_net.policy_value(state_batch)
-        for i in range(self.epochs):
-            loss, entropy = self.policy_value_net.train_step(
-                    state_batch,
-                    mcts_probs_batch,
-                    winner_batch,
-                    self.learn_rate*self.lr_multiplier)
-            new_probs, new_v = self.policy_value_net.policy_value(state_batch)
-            kl = np.mean(np.sum(old_probs * (
-                    np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
-                    axis=1)
-            )
-            if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+    def updatePolicy(self):
+        """Train the neural network on sampled data"""
+        miniBatch = random.sample(self.replayBuffer, self.miniBatchSize)
+        stateBatch = [sample[0] for sample in miniBatch]
+        probsBatch = [sample[1] for sample in miniBatch]
+        outcomeBatch = [sample[2] for sample in miniBatch]
+        prevProbs, prevValues = self.neuralNetwork.batchEvaluate(stateBatch)
+        for _ in range(self.trainingEpochs):
+            loss, entropy = self.neuralNetwork.trainOnBatch(
+                stateBatch,
+                probsBatch,
+                outcomeBatch,
+                self.baseLearningRate * self.learningRateScale)
+            newProbs, newValues = self.neuralNetwork.batchEvaluate(stateBatch)
+            klDivergence = np.mean(np.sum(prevProbs * (
+                np.log(prevProbs + 1e-10) - np.log(newProbs + 1e-10)),
+                axis=1))
+            if klDivergence > self.klTarget * 4:
                 break
-        # adaptively adjust the learning rate
-        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
-            self.lr_multiplier /= 1.5
-        elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
-            self.lr_multiplier *= 1.5
+        # Adaptive learning rate
+        if klDivergence > self.klTarget * 2 and self.learningRateScale > 0.1:
+            self.learningRateScale /= 1.5
+        elif klDivergence < self.klTarget / 2 and self.learningRateScale < 10:
+            self.learningRateScale *= 1.5
 
-        explained_var_old = (1 -
-                             np.var(np.array(winner_batch) - old_v.flatten()) /
-                             np.var(np.array(winner_batch)))
-        explained_var_new = (1 -
-                             np.var(np.array(winner_batch) - new_v.flatten()) /
-                             np.var(np.array(winner_batch)))
+        explainedVarPrev = (1 -
+                           np.var(np.array(outcomeBatch) - prevValues.flatten()) /
+                           np.var(np.array(outcomeBatch)))
+        explainedVarNew = (1 -
+                          np.var(np.array(outcomeBatch) - newValues.flatten()) /
+                          np.var(np.array(outcomeBatch)))
         print(("kl:{:.5f},"
-               "lr_multiplier:{:.3f},"
+               "lr_scale:{:.3f},"
                "loss:{},"
                "entropy:{},"
-               "explained_var_old:{:.3f},"
+               "explained_var_prev:{:.3f},"
                "explained_var_new:{:.3f}"
-               ).format(kl,
-                        self.lr_multiplier,
+               ).format(klDivergence,
+                        self.learningRateScale,
                         loss,
                         entropy,
-                        explained_var_old,
-                        explained_var_new))
+                        explainedVarPrev,
+                        explainedVarNew))
         return loss, entropy
 
-    def policy_evaluate(self, n_games=10):
+    def evaluatePolicy(self, numGames=10):
         """
-        Evaluate the trained policy by playing against the pure MCTS player
-        Note: this is only for monitoring the progress of training
+        Evaluate current policy against baseline pure MCTS.
+        Used to monitor training progress.
         """
-        current_mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
-                                         c_puct=self.c_puct,
-                                         n_playout=self.n_playout)
-        pure_mcts_player = MCTS_Pure(c_puct=5,
-                                     n_playout=self.pure_mcts_playout_num)
-        win_cnt = defaultdict(int)
-        for i in range(n_games):
-            winner = self.game.start_play(current_mcts_player,
-                                          pure_mcts_player,
-                                          start_player=i % 2,
-                                          is_shown=0)
-            win_cnt[winner] += 1
-        win_ratio = 1.0*(win_cnt[1] + 0.5*win_cnt[-1]) / n_games
-        print("num_playouts:{}, win: {}, lose: {}, tie:{}".format(
-                self.pure_mcts_playout_num,
-                win_cnt[1], win_cnt[2], win_cnt[-1]))
-        return win_ratio
+        currentAgent = TreeSearchAgent(self.neuralNetwork.evaluatePosition,
+                                       explorationWeight=self.explorationWeight,
+                                       numSimulations=self.numSimulations)
+        baselineAgent = PureSearchAgent(explorationWeight=5,
+                                        numSimulations=self.baselineSimulations)
+        winCounts = defaultdict(int)
+        for gameIdx in range(numGames):
+            victor = self.controller.runMatch(currentAgent,
+                                              baselineAgent,
+                                              firstPlayer=gameIdx % 2,
+                                              displayBoard=0)
+            winCounts[victor] += 1
+        winRate = 1.0 * (winCounts[1] + 0.5 * winCounts[-1]) / numGames
+        print("baseline_simulations:{}, wins: {}, losses: {}, draws:{}".format(
+            self.baselineSimulations,
+            winCounts[1], winCounts[2], winCounts[-1]))
+        return winRate
 
-    def run(self):
-        """run the training pipeline"""
+    def runTraining(self):
+        """Execute the full training loop"""
         try:
-            for i in range(self.game_batch_num):
-                self.collect_selfplay_data(self.play_batch_size)
-                print("batch i:{}, episode_len:{}".format(
-                        i+1, self.episode_len))
-                if len(self.data_buffer) > self.batch_size:
-                    loss, entropy = self.policy_update()
-                # check the performance of the current model,
-                # and save the model params
-                if (i+1) % self.check_freq == 0:
-                    print("current self-play batch: {}".format(i+1))
-                    win_ratio = self.policy_evaluate()
-                    self.policy_value_net.save_model('./current_policy.model')
-                    if win_ratio > self.best_win_ratio:
-                        print("New best policy!!!!!!!!")
-                        self.best_win_ratio = win_ratio
-                        # update the best_policy
-                        self.policy_value_net.save_model('./best_policy.model')
-                        if (self.best_win_ratio == 1.0 and
-                                self.pure_mcts_playout_num < 5000):
-                            self.pure_mcts_playout_num += 1000
-                            self.best_win_ratio = 0.0
+            for batchIdx in range(self.totalBatches):
+                self.generateSelfPlayData(self.gamesPerBatch)
+                print("batch:{}, episode_length:{}".format(
+                    batchIdx + 1, self.episodeLength))
+                if len(self.replayBuffer) > self.miniBatchSize:
+                    loss, entropy = self.updatePolicy()
+                if (batchIdx + 1) % self.evaluationInterval == 0:
+                    print("current batch: {}".format(batchIdx + 1))
+                    winRate = self.evaluatePolicy()
+                    self.neuralNetwork.saveCheckpoint('./current_policy.model')
+                    if winRate > self.bestWinRate:
+                        print("New best policy found!")
+                        self.bestWinRate = winRate
+                        self.neuralNetwork.saveCheckpoint('./best_policy.model')
+                        if (self.bestWinRate == 1.0 and
+                                self.baselineSimulations < 5000):
+                            self.baselineSimulations += 1000
+                            self.bestWinRate = 0.0
         except KeyboardInterrupt:
-            print('\n\rquit')
+            print('\n\rTraining interrupted')
 
 
 if __name__ == '__main__':
-    training_pipeline = TrainPipeline()
-    training_pipeline.run()
+    manager = TrainingManager()
+    manager.runTraining()

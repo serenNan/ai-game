@@ -1,277 +1,405 @@
 # -*- coding: utf-8 -*-
 """
 Pygame GUI for AlphaZero Gomoku
-Human vs AI with graphical interface
+Supports Human vs AI and AI vs AI modes with first/second player selection
 
-@author: Claude Code
+@author: Kevin Chen
 """
 
 import pygame
 import pickle
 import threading
-from game import Board
-from mcts_alphaZero import MCTSPlayer
-from policy_value_net_numpy import PolicyValueNetNumpy
+import time
+from game import GameState
+from mcts_alphaZero import TreeSearchAgent
+from policy_value_net_numpy import NumpyNetworkEvaluator
 
-# 颜色定义
-BOARD_COLOR = (220, 179, 92)      # 棋盘木色
-LINE_COLOR = (50, 50, 50)          # 线条颜色
-BLACK_PIECE = (20, 20, 20)         # 黑棋
-WHITE_PIECE = (240, 240, 240)      # 白棋
-HIGHLIGHT_COLOR = (255, 80, 80)    # 最后落子高亮
-BUTTON_COLOR = (100, 150, 100)     # 按钮颜色
-BUTTON_HOVER = (120, 180, 120)     # 按钮悬停
-TEXT_COLOR = (255, 255, 255)       # 文字颜色
-BG_COLOR = (60, 60, 60)            # 背景色
+# Color palette
+BOARD_BG = (220, 179, 92)
+GRID_LINE = (50, 50, 50)
+BLACK_STONE = (20, 20, 20)
+WHITE_STONE = (240, 240, 240)
+HIGHLIGHT = (255, 80, 80)
+BTN_NORMAL = (100, 150, 100)
+BTN_HOVER = (120, 180, 120)
+BTN_DISABLED = (80, 80, 80)
+TEXT_WHITE = (255, 255, 255)
+TEXT_DARK = (40, 40, 40)
+PANEL_BG = (60, 60, 60)
+MENU_BG = (45, 45, 55)
+MENU_ACCENT = (70, 130, 180)
 
 
-class GomokuGUI:
-    def __init__(self, width=8, height=8, n_in_row=5):
-        self.board_width = width
-        self.board_height = height
-        self.n_in_row = n_in_row
+class GomokuInterface:
+    def __init__(self, boardCols=8, boardRows=8, winLength=5):
+        self.boardCols = boardCols
+        self.boardRows = boardRows
+        self.winLength = winLength
 
-        # GUI 参数
-        self.cell_size = 60
+        # Display parameters
+        self.cellSize = 60
         self.margin = 40
-        self.board_pixel_size = self.cell_size * (max(width, height) - 1) + self.margin * 2
-        self.info_height = 80
-        self.window_width = self.board_pixel_size
-        self.window_height = self.board_pixel_size + self.info_height
+        self.boardPixelSize = self.cellSize * (max(boardCols, boardRows) - 1) + self.margin * 2
+        self.infoHeight = 80
+        self.windowWidth = self.boardPixelSize
+        self.windowHeight = self.boardPixelSize + self.infoHeight
 
-        # 初始化 Pygame
+        # Initialize Pygame
         pygame.init()
-        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
-        pygame.display.set_caption(f'AlphaZero Gomoku {width}x{height}')
-        self.font = pygame.font.Font(None, 36)
-        self.small_font = pygame.font.Font(None, 28)
+        self.display = pygame.display.set_mode((self.windowWidth, self.windowHeight))
+        pygame.display.set_caption(f'AlphaZero Gomoku {boardCols}x{boardRows}')
+        self.titleFont = pygame.font.Font(None, 48)
+        self.normalFont = pygame.font.Font(None, 36)
+        self.smallFont = pygame.font.Font(None, 28)
 
-        # 游戏状态
-        self.board = Board(width=width, height=height, n_in_row=n_in_row)
-        self.board.init_board(start_player=0)  # 人类先手 (player 1)
-        self.human_player = 1  # 人类是 player 1 (黑棋)
-        self.ai_player_id = 2  # AI 是 player 2 (白棋)
-        self.game_over = False
-        self.winner = None
-        self.last_move = None
-        self.ai_thinking = False
-        self.message = "Your turn (Black)"
-        self.move_history = []
+        # Game state
+        self.gameState = GameState(width=boardCols, height=boardRows, n_in_row=winLength)
+        self.isGameOver = False
+        self.victor = None
+        self.lastMoveIdx = None
+        self.isAiThinking = False
+        self.statusMessage = ""
+        self.moveLog = []
 
-        # 加载 AI
-        self._load_ai()
+        # Game mode settings
+        self.gameMode = None  # 'human_vs_ai' or 'ai_vs_ai'
+        self.humanGoesFirst = True
+        self.humanPlayerId = 1
+        self.aiPlayerId = 2
+        self.showingMenu = True
+        self.aiDelay = 0.5  # Delay for AI vs AI mode
 
-    def _load_ai(self):
-        """加载 AlphaZero AI"""
-        model_file = f'best_policy_{self.board_width}_{self.board_height}_{self.n_in_row}.model'
+        # AI agents
+        self.aiAgent1 = None
+        self.aiAgent2 = None
+        self._initializeAI()
+
+    def _initializeAI(self):
+        """Load the AlphaZero AI model"""
+        modelFile = f'best_policy_{self.boardCols}_{self.boardRows}_{self.winLength}.model'
         try:
             try:
-                policy_param = pickle.load(open(model_file, 'rb'))
+                modelParams = pickle.load(open(modelFile, 'rb'))
             except:
-                policy_param = pickle.load(open(model_file, 'rb'), encoding='bytes')
+                modelParams = pickle.load(open(modelFile, 'rb'), encoding='bytes')
 
-            best_policy = PolicyValueNetNumpy(self.board_width, self.board_height, policy_param)
-            self.ai_player = MCTSPlayer(best_policy.policy_value_fn, c_puct=5, n_playout=400)
-            self.ai_player.set_player_ind(self.ai_player_id)  # AI 是 player 2 (白棋)
-            print(f"Loaded AI model: {model_file}")
+            network = NumpyNetworkEvaluator(self.boardCols, self.boardRows, modelParams)
+            self.aiAgent1 = TreeSearchAgent(network.evaluatePosition,
+                                            explorationWeight=5, numSimulations=400)
+            # Create second AI for AI vs AI mode
+            self.aiAgent2 = TreeSearchAgent(network.evaluatePosition,
+                                            explorationWeight=5, numSimulations=400)
+            print(f"AI model loaded: {modelFile}")
         except FileNotFoundError:
-            print(f"Model file {model_file} not found, using pure MCTS")
-            from mcts_pure import MCTSPlayer as MCTS_Pure
-            self.ai_player = MCTS_Pure(c_puct=5, n_playout=1000)
-            self.ai_player.set_player_ind(self.ai_player_id)
+            print(f"Model file {modelFile} not found, using pure MCTS")
+            from mcts_pure import PureSearchAgent
+            self.aiAgent1 = PureSearchAgent(explorationWeight=5, numSimulations=1000)
+            self.aiAgent2 = PureSearchAgent(explorationWeight=5, numSimulations=1000)
 
-    def pos_to_pixel(self, x, y):
-        """棋盘坐标转像素坐标"""
-        px = self.margin + x * self.cell_size
-        py = self.margin + (self.board_height - 1 - y) * self.cell_size
+    def boardPosToPixel(self, x, y):
+        """Convert board coordinates to pixel coordinates"""
+        px = self.margin + x * self.cellSize
+        py = self.margin + (self.boardRows - 1 - y) * self.cellSize
         return px, py
 
-    def pixel_to_pos(self, px, py):
-        """像素坐标转棋盘坐标"""
-        x = round((px - self.margin) / self.cell_size)
-        y = self.board_height - 1 - round((py - self.margin) / self.cell_size)
-        if 0 <= x < self.board_width and 0 <= y < self.board_height:
+    def pixelToBoardPos(self, px, py):
+        """Convert pixel coordinates to board coordinates"""
+        x = round((px - self.margin) / self.cellSize)
+        y = self.boardRows - 1 - round((py - self.margin) / self.cellSize)
+        if 0 <= x < self.boardCols and 0 <= y < self.boardRows:
             return x, y
         return None, None
 
-    def draw_board(self):
-        """绘制棋盘"""
-        # 背景
-        self.screen.fill(BG_COLOR)
+    def renderMenuScreen(self):
+        """Render the game mode selection menu"""
+        self.display.fill(MENU_BG)
 
-        # 棋盘区域
-        board_rect = pygame.Rect(0, 0, self.board_pixel_size, self.board_pixel_size)
-        pygame.draw.rect(self.screen, BOARD_COLOR, board_rect)
+        # Title
+        title = self.titleFont.render("AlphaZero Gomoku", True, TEXT_WHITE)
+        titleRect = title.get_rect(center=(self.windowWidth // 2, 60))
+        self.display.blit(title, titleRect)
 
-        # 网格线
-        for i in range(self.board_width):
-            start_pos = self.pos_to_pixel(i, 0)
-            end_pos = self.pos_to_pixel(i, self.board_height - 1)
-            pygame.draw.line(self.screen, LINE_COLOR, start_pos, end_pos, 2)
+        # Subtitle
+        subtitle = self.smallFont.render(f"{self.boardCols}x{self.boardRows} Board, {self.winLength} in a row to win",
+                                         True, (180, 180, 180))
+        subtitleRect = subtitle.get_rect(center=(self.windowWidth // 2, 100))
+        self.display.blit(subtitle, subtitleRect)
 
-        for j in range(self.board_height):
-            start_pos = self.pos_to_pixel(0, j)
-            end_pos = self.pos_to_pixel(self.board_width - 1, j)
-            pygame.draw.line(self.screen, LINE_COLOR, start_pos, end_pos, 2)
+        mousePos = pygame.mouse.get_pos()
 
-        # 星位点 (如果棋盘足够大)
-        if self.board_width >= 9 and self.board_height >= 9:
-            star_points = [(2, 2), (2, 6), (6, 2), (6, 6), (4, 4)]
-            for x, y in star_points:
-                if x < self.board_width and y < self.board_height:
-                    px, py = self.pos_to_pixel(x, y)
-                    pygame.draw.circle(self.screen, LINE_COLOR, (px, py), 5)
+        # Game Mode Selection
+        modeLabel = self.normalFont.render("Game Mode:", True, TEXT_WHITE)
+        self.display.blit(modeLabel, (self.windowWidth // 2 - 150, 150))
 
-    def draw_pieces(self):
-        """绘制棋子"""
-        for move, player in self.board.states.items():
-            # move = h * width + w, 所以 h = move // width, w = move % width
-            y = move // self.board_width  # h
-            x = move % self.board_width   # w
-            px, py = self.pos_to_pixel(x, y)
+        # Human vs AI button
+        self.btnHumanVsAi = pygame.Rect(self.windowWidth // 2 - 120, 190, 240, 45)
+        btnColor = MENU_ACCENT if self.btnHumanVsAi.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnHumanVsAi, border_radius=8)
+        btnText = self.normalFont.render("Human vs AI", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnHumanVsAi.center))
 
-            # player 1 = 黑棋, player 2 = 白棋
-            color = BLACK_PIECE if player == 1 else WHITE_PIECE
-            pygame.draw.circle(self.screen, color, (px, py), self.cell_size // 2 - 4)
+        # AI vs AI button
+        self.btnAiVsAi = pygame.Rect(self.windowWidth // 2 - 120, 250, 240, 45)
+        btnColor = MENU_ACCENT if self.btnAiVsAi.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnAiVsAi, border_radius=8)
+        btnText = self.normalFont.render("AI vs AI", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnAiVsAi.center))
 
-            # 棋子边框
-            border_color = (100, 100, 100) if player == 1 else (150, 150, 150)
-            pygame.draw.circle(self.screen, border_color, (px, py), self.cell_size // 2 - 4, 2)
+        # First/Second player selection (only for Human vs AI)
+        orderLabel = self.normalFont.render("Play as:", True, TEXT_WHITE)
+        self.display.blit(orderLabel, (self.windowWidth // 2 - 150, 320))
 
-        # 高亮最后一步
-        if self.last_move is not None:
-            y = self.last_move // self.board_width  # h
-            x = self.last_move % self.board_width   # w
-            px, py = self.pos_to_pixel(x, y)
-            pygame.draw.circle(self.screen, HIGHLIGHT_COLOR, (px, py), 8)
+        # First player (Black) button
+        self.btnPlayFirst = pygame.Rect(self.windowWidth // 2 - 120, 360, 115, 45)
+        isSelected = self.humanGoesFirst
+        btnColor = MENU_ACCENT if isSelected else (BTN_HOVER if self.btnPlayFirst.collidepoint(mousePos) else BTN_NORMAL)
+        pygame.draw.rect(self.display, btnColor, self.btnPlayFirst, border_radius=8)
+        btnText = self.smallFont.render("First (Black)", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnPlayFirst.center))
 
-    def draw_info(self):
-        """绘制信息栏"""
-        info_rect = pygame.Rect(0, self.board_pixel_size, self.window_width, self.info_height)
-        pygame.draw.rect(self.screen, BG_COLOR, info_rect)
+        # Second player (White) button
+        self.btnPlaySecond = pygame.Rect(self.windowWidth // 2 + 5, 360, 115, 45)
+        isSelected = not self.humanGoesFirst
+        btnColor = MENU_ACCENT if isSelected else (BTN_HOVER if self.btnPlaySecond.collidepoint(mousePos) else BTN_NORMAL)
+        pygame.draw.rect(self.display, btnColor, self.btnPlaySecond, border_radius=8)
+        btnText = self.smallFont.render("Second (White)", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnPlaySecond.center))
 
-        # 状态信息
-        text = self.font.render(self.message, True, TEXT_COLOR)
-        text_rect = text.get_rect(center=(self.window_width // 2, self.board_pixel_size + 25))
-        self.screen.blit(text, text_rect)
+        # Start button
+        self.btnStart = pygame.Rect(self.windowWidth // 2 - 80, 440, 160, 50)
+        btnColor = MENU_ACCENT if self.btnStart.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnStart, border_radius=10)
+        btnText = self.normalFont.render("Start Game", True, TEXT_WHITE)
+        self.display.blit(btnText, btnText.get_rect(center=self.btnStart.center))
 
-        # 按钮
-        self.restart_btn = pygame.Rect(self.window_width // 2 - 120, self.board_pixel_size + 45, 100, 30)
-        self.undo_btn = pygame.Rect(self.window_width // 2 + 20, self.board_pixel_size + 45, 100, 30)
+    def renderBoard(self):
+        """Render the game board"""
+        self.display.fill(PANEL_BG)
 
-        mouse_pos = pygame.mouse.get_pos()
+        # Board background
+        boardRect = pygame.Rect(0, 0, self.boardPixelSize, self.boardPixelSize)
+        pygame.draw.rect(self.display, BOARD_BG, boardRect)
 
-        # 重新开始按钮
-        btn_color = BUTTON_HOVER if self.restart_btn.collidepoint(mouse_pos) else BUTTON_COLOR
-        pygame.draw.rect(self.screen, btn_color, self.restart_btn, border_radius=5)
-        restart_text = self.small_font.render("Restart", True, TEXT_COLOR)
-        self.screen.blit(restart_text, restart_text.get_rect(center=self.restart_btn.center))
+        # Grid lines
+        for i in range(self.boardCols):
+            startPos = self.boardPosToPixel(i, 0)
+            endPos = self.boardPosToPixel(i, self.boardRows - 1)
+            pygame.draw.line(self.display, GRID_LINE, startPos, endPos, 2)
 
-        # 悔棋按钮
-        btn_color = BUTTON_HOVER if self.undo_btn.collidepoint(mouse_pos) else BUTTON_COLOR
-        pygame.draw.rect(self.screen, btn_color, self.undo_btn, border_radius=5)
-        undo_text = self.small_font.render("Undo", True, TEXT_COLOR)
-        self.screen.blit(undo_text, undo_text.get_rect(center=self.undo_btn.center))
+        for j in range(self.boardRows):
+            startPos = self.boardPosToPixel(0, j)
+            endPos = self.boardPosToPixel(self.boardCols - 1, j)
+            pygame.draw.line(self.display, GRID_LINE, startPos, endPos, 2)
 
-    def restart_game(self):
-        """重新开始游戏"""
-        self.board.init_board(start_player=0)
-        self.game_over = False
-        self.winner = None
-        self.last_move = None
-        self.message = "Your turn (Black)"
-        self.move_history = []
-        self.ai_player.reset_player()
+        # Star points for larger boards
+        if self.boardCols >= 9 and self.boardRows >= 9:
+            starPoints = [(2, 2), (2, 6), (6, 2), (6, 6), (4, 4)]
+            for x, y in starPoints:
+                if x < self.boardCols and y < self.boardRows:
+                    px, py = self.boardPosToPixel(x, y)
+                    pygame.draw.circle(self.display, GRID_LINE, (px, py), 5)
 
-    def undo_move(self):
-        """悔棋 (撤销人类和AI各一步)"""
-        if len(self.move_history) >= 2 and not self.ai_thinking:
-            # 撤销两步 (AI + 人类)
-            for _ in range(2):
-                if self.move_history:
-                    move = self.move_history.pop()
-                    del self.board.states[move]
-                    self.board.availables.add(move)
+    def renderStones(self):
+        """Render the stones on the board"""
+        for moveIdx, playerId in self.gameState.positions.items():
+            row = moveIdx // self.boardCols
+            col = moveIdx % self.boardCols
+            px, py = self.boardPosToPixel(col, row)
 
-            self.board.current_player = self.human_player  # 人类回合
-            self.last_move = self.move_history[-1] if self.move_history else None
-            self.game_over = False
-            self.winner = None
-            self.message = "Your turn (Black)"
-            self.ai_player.reset_player()
+            color = BLACK_STONE if playerId == 1 else WHITE_STONE
+            pygame.draw.circle(self.display, color, (px, py), self.cellSize // 2 - 4)
 
-    def check_winner(self):
-        """检查是否有赢家"""
-        end, winner = self.board.game_end()
-        if end:
-            self.game_over = True
-            self.winner = winner
-            if winner == -1:
-                self.message = "Draw!"
-            elif winner == self.human_player:
-                self.message = "You Win!"
+            borderColor = (100, 100, 100) if playerId == 1 else (150, 150, 150)
+            pygame.draw.circle(self.display, borderColor, (px, py), self.cellSize // 2 - 4, 2)
+
+        # Highlight last move
+        if self.lastMoveIdx is not None:
+            row = self.lastMoveIdx // self.boardCols
+            col = self.lastMoveIdx % self.boardCols
+            px, py = self.boardPosToPixel(col, row)
+            pygame.draw.circle(self.display, HIGHLIGHT, (px, py), 8)
+
+    def renderInfoPanel(self):
+        """Render the information panel"""
+        infoRect = pygame.Rect(0, self.boardPixelSize, self.windowWidth, self.infoHeight)
+        pygame.draw.rect(self.display, PANEL_BG, infoRect)
+
+        # Status message
+        statusText = self.normalFont.render(self.statusMessage, True, TEXT_WHITE)
+        statusRect = statusText.get_rect(center=(self.windowWidth // 2, self.boardPixelSize + 25))
+        self.display.blit(statusText, statusRect)
+
+        # Buttons
+        self.btnRestart = pygame.Rect(self.windowWidth // 2 - 120, self.boardPixelSize + 45, 100, 30)
+        self.btnMenu = pygame.Rect(self.windowWidth // 2 + 20, self.boardPixelSize + 45, 100, 30)
+
+        mousePos = pygame.mouse.get_pos()
+
+        # Restart button
+        btnColor = BTN_HOVER if self.btnRestart.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnRestart, border_radius=5)
+        restartText = self.smallFont.render("Restart", True, TEXT_WHITE)
+        self.display.blit(restartText, restartText.get_rect(center=self.btnRestart.center))
+
+        # Menu button
+        btnColor = BTN_HOVER if self.btnMenu.collidepoint(mousePos) else BTN_NORMAL
+        pygame.draw.rect(self.display, btnColor, self.btnMenu, border_radius=5)
+        menuText = self.smallFont.render("Menu", True, TEXT_WHITE)
+        self.display.blit(menuText, menuText.get_rect(center=self.btnMenu.center))
+
+    def resetGame(self):
+        """Reset the game to initial state"""
+        if self.gameMode == 'human_vs_ai':
+            startPlayer = 0 if self.humanGoesFirst else 1
+            self.humanPlayerId = 1 if self.humanGoesFirst else 2
+            self.aiPlayerId = 2 if self.humanGoesFirst else 1
+        else:
+            startPlayer = 0
+
+        self.gameState.initState(startPlayer)
+        self.isGameOver = False
+        self.victor = None
+        self.lastMoveIdx = None
+        self.moveLog = []
+        self.aiAgent1.resetState()
+        self.aiAgent2.resetState()
+
+        if self.gameMode == 'human_vs_ai':
+            if self.humanGoesFirst:
+                self.statusMessage = "Your turn (Black)"
             else:
-                self.message = "AI Wins!"
+                self.statusMessage = "AI thinking..."
+                self.isAiThinking = True
+                threading.Thread(target=self._executeAiMove, daemon=True).start()
+        else:
+            self.statusMessage = "AI vs AI - Black's turn"
+            self.isAiThinking = True
+            threading.Thread(target=self._runAiVsAi, daemon=True).start()
+
+    def returnToMenu(self):
+        """Return to the main menu"""
+        self.showingMenu = True
+        self.isGameOver = False
+        self.isAiThinking = False
+
+    def _checkGameEnd(self):
+        """Check if the game has ended"""
+        finished, winner = self.gameState.isTerminal()
+        if finished:
+            self.isGameOver = True
+            self.victor = winner
+            if winner == -1:
+                self.statusMessage = "Draw!"
+            elif self.gameMode == 'human_vs_ai':
+                if winner == self.humanPlayerId:
+                    self.statusMessage = "You Win!"
+                else:
+                    self.statusMessage = "AI Wins!"
+            else:
+                self.statusMessage = f"Player {winner} ({'Black' if winner == 1 else 'White'}) Wins!"
             return True
         return False
 
-    def human_move(self, x, y):
-        """人类落子"""
-        if self.game_over or self.ai_thinking:
+    def _handleHumanMove(self, x, y):
+        """Process human player's move"""
+        if self.isGameOver or self.isAiThinking:
             return
 
-        # location_to_move 期望 [h, w] 即 [y, x]
-        move = self.board.location_to_move([y, x])
-        if move in self.board.availables:
-            self.board.do_move(move)
-            self.last_move = move
-            self.move_history.append(move)
+        moveIdx = self.gameState.coordToIndex([y, x])
+        if moveIdx in self.gameState.openPositions:
+            self.gameState.applyMove(moveIdx)
+            self.lastMoveIdx = moveIdx
+            self.moveLog.append(moveIdx)
 
-            if not self.check_winner():
-                self.message = "AI thinking..."
-                self.ai_thinking = True
-                # 在后台线程运行 AI
-                threading.Thread(target=self.ai_move, daemon=True).start()
+            if not self._checkGameEnd():
+                self.statusMessage = "AI thinking..."
+                self.isAiThinking = True
+                threading.Thread(target=self._executeAiMove, daemon=True).start()
 
-    def ai_move(self):
-        """AI 落子"""
-        move = self.ai_player.get_action(self.board)
-        self.board.do_move(move)
-        self.last_move = move
-        self.move_history.append(move)
-        self.ai_thinking = False
+    def _executeAiMove(self):
+        """Execute AI's move"""
+        agent = self.aiAgent1 if self.gameState.activePlayer == self.aiPlayerId else self.aiAgent2
+        agent.assignPlayerId(self.gameState.activePlayer)
+        moveIdx = agent.selectMove(self.gameState)
+        self.gameState.applyMove(moveIdx)
+        self.lastMoveIdx = moveIdx
+        self.moveLog.append(moveIdx)
+        self.isAiThinking = False
 
-        if not self.check_winner():
-            self.message = "Your turn (Black)"
+        if not self._checkGameEnd():
+            pieceColor = "Black" if self.gameState.activePlayer == 1 else "White"
+            self.statusMessage = f"Your turn ({pieceColor})"
+
+    def _runAiVsAi(self):
+        """Run AI vs AI game"""
+        self.aiAgent1.assignPlayerId(1)
+        self.aiAgent2.assignPlayerId(2)
+
+        while not self.isGameOver and self.gameMode == 'ai_vs_ai':
+            currentPlayer = self.gameState.activePlayer
+            agent = self.aiAgent1 if currentPlayer == 1 else self.aiAgent2
+
+            pieceColor = "Black" if currentPlayer == 1 else "White"
+            self.statusMessage = f"AI ({pieceColor}) thinking..."
+
+            moveIdx = agent.selectMove(self.gameState)
+            self.gameState.applyMove(moveIdx)
+            self.lastMoveIdx = moveIdx
+            self.moveLog.append(moveIdx)
+
+            if self._checkGameEnd():
+                break
+
+            time.sleep(self.aiDelay)
+
+        self.isAiThinking = False
 
     def run(self):
-        """主循环"""
+        """Main game loop"""
         clock = pygame.time.Clock()
-        running = True
+        isRunning = True
 
-        while running:
+        while isRunning:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    running = False
+                    isRunning = False
 
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    mx, my = event.pos
+                    mouseX, mouseY = event.pos
 
-                    # 检查按钮点击
-                    if self.restart_btn.collidepoint(mx, my):
-                        self.restart_game()
-                    elif self.undo_btn.collidepoint(mx, my):
-                        self.undo_move()
-                    # 检查棋盘点击
-                    elif my < self.board_pixel_size:
-                        x, y = self.pixel_to_pos(mx, my)
-                        if x is not None and self.board.current_player == self.human_player:
-                            self.human_move(x, y)
+                    if self.showingMenu:
+                        # Menu button handling
+                        if self.btnHumanVsAi.collidepoint(mouseX, mouseY):
+                            self.gameMode = 'human_vs_ai'
+                        elif self.btnAiVsAi.collidepoint(mouseX, mouseY):
+                            self.gameMode = 'ai_vs_ai'
+                        elif self.btnPlayFirst.collidepoint(mouseX, mouseY):
+                            self.humanGoesFirst = True
+                        elif self.btnPlaySecond.collidepoint(mouseX, mouseY):
+                            self.humanGoesFirst = False
+                        elif self.btnStart.collidepoint(mouseX, mouseY) and self.gameMode:
+                            self.showingMenu = False
+                            self.resetGame()
+                    else:
+                        # Game button handling
+                        if self.btnRestart.collidepoint(mouseX, mouseY):
+                            self.resetGame()
+                        elif self.btnMenu.collidepoint(mouseX, mouseY):
+                            self.returnToMenu()
+                        elif mouseY < self.boardPixelSize:
+                            # Board click
+                            if self.gameMode == 'human_vs_ai':
+                                x, y = self.pixelToBoardPos(mouseX, mouseY)
+                                if x is not None and self.gameState.activePlayer == self.humanPlayerId:
+                                    self._handleHumanMove(x, y)
 
-            # 绘制
-            self.draw_board()
-            self.draw_pieces()
-            self.draw_info()
+            # Render
+            if self.showingMenu:
+                self.renderMenuScreen()
+            else:
+                self.renderBoard()
+                self.renderStones()
+                self.renderInfoPanel()
 
             pygame.display.flip()
             clock.tick(60)
@@ -280,8 +408,7 @@ class GomokuGUI:
 
 
 def main():
-    # 可以修改棋盘大小: 6x6(4连), 8x8(5连), 等
-    gui = GomokuGUI(width=8, height=8, n_in_row=5)
+    gui = GomokuInterface(boardCols=8, boardRows=8, winLength=5)
     gui.run()
 
 

@@ -1,218 +1,191 @@
 # -*- coding: utf-8 -*-
 """
-Monte Carlo Tree Search in AlphaGo Zero style, which uses a policy-value
-network to guide the tree search and evaluate the leaf nodes
+Monte Carlo Tree Search implementation following AlphaGo Zero methodology
+Uses policy-value network for tree guidance and leaf evaluation
 
-@author: Junxiao Song
+@author: Kevin Chen
 """
 
 import numpy as np
 import copy
 
 
-def softmax(x):
-    probs = np.exp(x - np.max(x))
-    probs /= np.sum(probs)
-    return probs
+def computeSoftmax(x):
+    probabilities = np.exp(x - np.max(x))
+    probabilities /= np.sum(probabilities)
+    return probabilities
 
 
-class TreeNode(object):
-    """A node in the MCTS tree.
-
-    Each node keeps track of its own value Q, prior probability P, and
-    its visit-count-adjusted prior score u.
+class SearchNode(object):
+    """
+    A node in the MCTS search tree.
+    Tracks Q-value, prior probability P, and visit-adjusted score U.
     """
 
-    def __init__(self, parent, prior_p):
-        self._parent = parent
-        self._children = {}  # a map from action to TreeNode
-        self._n_visits = 0
-        self._Q = 0
-        self._u = 0
-        self._P = prior_p
+    def __init__(self, parentNode, priorProb):
+        self._parentNode = parentNode
+        self._childNodes = {}
+        self._visitCount = 0
+        self._qValue = 0
+        self._ucbBonus = 0
+        self._priorProb = priorProb
 
-    def expand(self, action_priors):
-        """Expand tree by creating new children.
-        action_priors: a list of tuples of actions and their prior probability
-            according to the policy function.
+    def expandNode(self, actionPriors):
         """
-        for action, prob in action_priors:
-            if action not in self._children:
-                self._children[action] = TreeNode(self, prob)
-
-    def select(self, c_puct):
-        """Select action among children that gives maximum action value Q
-        plus bonus u(P).
-        Return: A tuple of (action, next_node)
+        Expand tree by adding child nodes.
+        actionPriors: list of (action, prior_probability) tuples
         """
-        return max(self._children.items(),
-                   key=lambda act_node: act_node[1].get_value(c_puct))
+        for action, prob in actionPriors:
+            if action not in self._childNodes:
+                self._childNodes[action] = SearchNode(self, prob)
 
-    def update(self, leaf_value):
-        """Update node values from leaf evaluation.
-        leaf_value: the value of subtree evaluation from the current player's
-            perspective.
+    def selectChild(self, explorationWeight):
         """
-        # Count visit.
-        self._n_visits += 1
-        # Update Q, a running average of values for all visits.
-        self._Q += 1.0*(leaf_value - self._Q) / self._n_visits
-
-    def update_recursive(self, leaf_value):
-        """Like a call to update(), but applied recursively for all ancestors.
+        Select child with highest Q + U value.
+        Returns: (action, child_node) tuple
         """
-        # If it is not root, this node's parent should be updated first.
-        if self._parent:
-            self._parent.update_recursive(-leaf_value)
-        self.update(leaf_value)
+        return max(self._childNodes.items(),
+                   key=lambda item: item[1].computeScore(explorationWeight))
 
-    def get_value(self, c_puct):
-        """Calculate and return the value for this node.
-        It is a combination of leaf evaluations Q, and this node's prior
-        adjusted for its visit count, u.
-        c_puct: a number in (0, inf) controlling the relative impact of
-            value Q, and prior probability P, on this node's score.
+    def updateStats(self, leafValue):
         """
-        self._u = (c_puct * self._P *
-                   np.sqrt(self._parent._n_visits) / (1 + self._n_visits))
-        return self._Q + self._u
-
-    def is_leaf(self):
-        """Check if leaf node (i.e. no nodes below this have been expanded)."""
-        return self._children == {}
-
-    def is_root(self):
-        return self._parent is None
-
-
-class MCTS(object):
-    """An implementation of Monte Carlo Tree Search."""
-
-    def __init__(self, policy_value_fn, c_puct=5, n_playout=10000):
+        Update node statistics after leaf evaluation.
+        leafValue: evaluation from current player's perspective
         """
-        policy_value_fn: a function that takes in a board state and outputs
-            a list of (action, probability) tuples and also a score in [-1, 1]
-            (i.e. the expected value of the end game score from the current
-            player's perspective) for the current player.
-        c_puct: a number in (0, inf) that controls how quickly exploration
-            converges to the maximum-value policy. A higher value means
-            relying on the prior more.
-        """
-        self._root = TreeNode(None, 1.0)
-        self._policy = policy_value_fn
-        self._c_puct = c_puct
-        self._n_playout = n_playout
+        self._visitCount += 1
+        self._qValue += 1.0 * (leafValue - self._qValue) / self._visitCount
 
-    def _playout(self, state):
-        """Run a single playout from the root to the leaf, getting a value at
-        the leaf and propagating it back through its parents.
-        State is modified in-place, so a copy must be provided.
+    def backpropagate(self, leafValue):
+        """Recursively update all ancestors"""
+        if self._parentNode:
+            self._parentNode.backpropagate(-leafValue)
+        self.updateStats(leafValue)
+
+    def computeScore(self, explorationWeight):
         """
-        node = self._root
-        while(1):
-            if node.is_leaf():
+        Calculate node score: Q + U
+        explorationWeight: controls exploration vs exploitation
+        """
+        self._ucbBonus = (explorationWeight * self._priorProb *
+                         np.sqrt(self._parentNode._visitCount) / (1 + self._visitCount))
+        return self._qValue + self._ucbBonus
+
+    def isLeafNode(self):
+        """Check if node has no children"""
+        return self._childNodes == {}
+
+    def isRootNode(self):
+        return self._parentNode is None
+
+
+class MonteCarloTreeSearch(object):
+    """AlphaZero-style Monte Carlo Tree Search implementation"""
+
+    def __init__(self, policyValueFn, explorationWeight=5, numSimulations=10000):
+        """
+        policyValueFn: function that returns (action_probs, value) for a state
+        explorationWeight: UCB exploration constant (c_puct)
+        numSimulations: number of MCTS iterations per move
+        """
+        self._rootNode = SearchNode(None, 1.0)
+        self._evaluator = policyValueFn
+        self._explorationWeight = explorationWeight
+        self._numSimulations = numSimulations
+
+    def _runSimulation(self, gameState):
+        """
+        Execute one simulation from root to leaf, evaluate leaf, backpropagate.
+        gameState is modified in-place; caller must provide a copy.
+        """
+        node = self._rootNode
+        while True:
+            if node.isLeafNode():
                 break
-            # Greedily select next move.
-            action, node = node.select(self._c_puct)
-            state.do_move(action)
+            action, node = node.selectChild(self._explorationWeight)
+            gameState.applyMove(action)
 
-        # Evaluate the leaf using a network which outputs a list of
-        # (action, probability) tuples p and also a score v in [-1, 1]
-        # for the current player.
-        action_probs, leaf_value = self._policy(state)
-        # Check for end of game.
-        end, winner = state.game_end()
-        if not end:
-            node.expand(action_probs)
+        actionProbs, leafValue = self._evaluator(gameState)
+        finished, victor = gameState.isTerminal()
+        if not finished:
+            node.expandNode(actionProbs)
         else:
-            # for end state，return the "true" leaf_value
-            if winner == -1:  # tie
-                leaf_value = 0.0
+            if victor == -1:
+                leafValue = 0.0
             else:
-                leaf_value = (
-                    1.0 if winner == state.get_current_player() else -1.0
+                leafValue = (
+                    1.0 if victor == gameState.getCurrentPlayer() else -1.0
                 )
 
-        # Update value and visit count of nodes in this traversal.
-        node.update_recursive(-leaf_value)
+        node.backpropagate(-leafValue)
 
-    def get_move_probs(self, state, temp=1e-3):
-        """Run all playouts sequentially and return the available actions and
-        their corresponding probabilities.
-        state: the current game state
-        temp: temperature parameter in (0, 1] controls the level of exploration
+    def computeMoveDistribution(self, gameState, temperature=1e-3):
         """
-        for n in range(self._n_playout):
-            state_copy = copy.deepcopy(state)
-            self._playout(state_copy)
-
-        # calc the move probabilities based on visit counts at the root node
-        act_visits = [(act, node._n_visits)
-                      for act, node in self._root._children.items()]
-        acts, visits = zip(*act_visits)
-        act_probs = softmax(1.0/temp * np.log(np.array(visits) + 1e-10))
-
-        return acts, act_probs
-
-    def update_with_move(self, last_move):
-        """Step forward in the tree, keeping everything we already know
-        about the subtree.
+        Run all simulations and return action probabilities.
+        temperature: controls exploration in action selection
         """
-        if last_move in self._root._children:
-            self._root = self._root._children[last_move]
-            self._root._parent = None
+        for _ in range(self._numSimulations):
+            stateCopy = copy.deepcopy(gameState)
+            self._runSimulation(stateCopy)
+
+        actionVisits = [(action, node._visitCount)
+                        for action, node in self._rootNode._childNodes.items()]
+        actions, visits = zip(*actionVisits)
+        actionProbs = computeSoftmax(1.0 / temperature * np.log(np.array(visits) + 1e-10))
+
+        return actions, actionProbs
+
+    def advanceTree(self, lastAction):
+        """
+        Move root to child corresponding to lastAction.
+        Preserves subtree knowledge.
+        """
+        if lastAction in self._rootNode._childNodes:
+            self._rootNode = self._rootNode._childNodes[lastAction]
+            self._rootNode._parentNode = None
         else:
-            self._root = TreeNode(None, 1.0)
+            self._rootNode = SearchNode(None, 1.0)
 
     def __str__(self):
-        return "MCTS"
+        return "MonteCarloTreeSearch"
 
 
-class MCTSPlayer(object):
-    """AI player based on MCTS"""
+class TreeSearchAgent(object):
+    """AI player using MCTS with neural network guidance"""
 
-    def __init__(self, policy_value_function,
-                 c_puct=5, n_playout=2000, is_selfplay=0):
-        self.mcts = MCTS(policy_value_function, c_puct, n_playout)
-        self._is_selfplay = is_selfplay
+    def __init__(self, policyValueFn,
+                 explorationWeight=5, numSimulations=2000, selfPlayMode=0):
+        self.searchTree = MonteCarloTreeSearch(policyValueFn, explorationWeight, numSimulations)
+        self._selfPlayMode = selfPlayMode
 
-    def set_player_ind(self, p):
-        self.player = p
+    def assignPlayerId(self, playerId):
+        self.playerId = playerId
 
-    def reset_player(self):
-        self.mcts.update_with_move(-1)
+    def resetState(self):
+        self.searchTree.advanceTree(-1)
 
-    def get_action(self, board, temp=1e-3, return_prob=0):
-        sensible_moves = board.availables
-        # the pi vector returned by MCTS as in the alphaGo Zero paper
-        move_probs = np.zeros(board.width*board.height)
-        if len(sensible_moves) > 0:
-            acts, probs = self.mcts.get_move_probs(board, temp)
-            move_probs[list(acts)] = probs
-            if self._is_selfplay:
-                # add Dirichlet Noise for exploration (needed for
-                # self-play training)
-                move = np.random.choice(
-                    acts,
-                    p=0.75*probs + 0.25*np.random.dirichlet(0.3*np.ones(len(probs)))
+    def selectMove(self, gameState, temperature=1e-3, returnProb=0):
+        validMoves = gameState.openPositions
+        moveProbabilities = np.zeros(gameState.cols * gameState.rows)
+        if len(validMoves) > 0:
+            actions, probs = self.searchTree.computeMoveDistribution(gameState, temperature)
+            moveProbabilities[list(actions)] = probs
+            if self._selfPlayMode:
+                # Add Dirichlet noise for exploration during self-play
+                selectedMove = np.random.choice(
+                    actions,
+                    p=0.75 * probs + 0.25 * np.random.dirichlet(0.3 * np.ones(len(probs)))
                 )
-                # update the root node and reuse the search tree
-                self.mcts.update_with_move(move)
+                self.searchTree.advanceTree(selectedMove)
             else:
-                # with the default temp=1e-3, it is almost equivalent
-                # to choosing the move with the highest prob
-                move = np.random.choice(acts, p=probs)
-                # reset the root node
-                self.mcts.update_with_move(-1)
-#                location = board.move_to_location(move)
-#                print("AI move: %d,%d\n" % (location[0], location[1]))
+                selectedMove = np.random.choice(actions, p=probs)
+                self.searchTree.advanceTree(-1)
 
-            if return_prob:
-                return move, move_probs
+            if returnProb:
+                return selectedMove, moveProbabilities
             else:
-                return move
+                return selectedMove
         else:
-            print("WARNING: the board is full")
+            print("WARNING: no valid moves available")
 
     def __str__(self):
-        return "MCTS {}".format(self.player)
+        return "TreeSearchAgent {}".format(self.playerId)
