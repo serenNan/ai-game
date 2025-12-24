@@ -21,11 +21,12 @@ class NeuralNetworkEvaluator():
         self._buildNetwork()
         self._setupTraining()
         if modelPath:
-            try:
-                savedParams = pickle.load(open(modelPath, 'rb'))
-            except:
-                savedParams = pickle.load(open(modelPath, 'rb'),
-                                          encoding='bytes')
+            with open(modelPath, 'rb') as f:
+                try:
+                    savedParams = pickle.load(f)
+                except (UnicodeDecodeError, KeyError):
+                    f.seek(0)
+                    savedParams = pickle.load(f, encoding='bytes')
             lasagne.layers.set_all_param_values(
                 [self.policyLayer, self.valueLayer], savedParams)
 

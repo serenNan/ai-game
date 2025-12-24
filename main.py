@@ -45,7 +45,7 @@ def loadChineseFont(size):
         if os.path.exists(fontPath):
             try:
                 return pygame.font.Font(fontPath, size)
-            except:
+            except (OSError, RuntimeError) as e:
                 continue
     return pygame.font.Font(None, size)
 
@@ -98,6 +98,9 @@ class GomokuInterface:
         # AI 代理
         self.aiAgent = None
 
+        # 线程锁保护共享状态
+        self.stateLock = threading.Lock()
+
     def _updateWindowSize(self):
         """根据棋盘大小更新窗口尺寸"""
         self.boardPixelSize = self.cellSize * (max(self.boardCols, self.boardRows) - 1) + self.margin * 2
@@ -128,10 +131,13 @@ class GomokuInterface:
         """加载对应棋盘的 AI 模型"""
         modelFile = f'{self.boardCols}_{self.boardRows}_{self.winLength}.model'
         try:
-            try:
-                modelParams = pickle.load(open(modelFile, 'rb'))
-            except:
-                modelParams = pickle.load(open(modelFile, 'rb'), encoding='bytes')
+            # 安全加载模型文件
+            with open(modelFile, 'rb') as f:
+                try:
+                    modelParams = pickle.load(f)
+                except (UnicodeDecodeError, KeyError):
+                    f.seek(0)  # 重置文件指针
+                    modelParams = pickle.load(f, encoding='bytes')
 
             network = NumpyNetworkEvaluator(self.boardCols, self.boardRows, modelParams)
             self.aiAgent = TreeSearchAgent(network.evaluatePosition,
@@ -354,9 +360,10 @@ class GomokuInterface:
 
         moveIdx = self.gameState.coordToIndex([y, x])
         if moveIdx in self.gameState.openPositions:
-            self.gameState.applyMove(moveIdx)
-            self.lastMoveIdx = moveIdx
-            self.moveLog.append(moveIdx)
+            with self.stateLock:
+                self.gameState.applyMove(moveIdx)
+                self.lastMoveIdx = moveIdx
+                self.moveLog.append(moveIdx)
 
             if not self._checkGameEnd():
                 self.statusMessage = "AI 思考中..."
@@ -365,12 +372,13 @@ class GomokuInterface:
 
     def _executeAiMove(self):
         """执行 AI 落子"""
-        self.aiAgent.assignPlayerId(self.gameState.activePlayer)
-        moveIdx = self.aiAgent.selectMove(self.gameState)
-        self.gameState.applyMove(moveIdx)
-        self.lastMoveIdx = moveIdx
-        self.moveLog.append(moveIdx)
-        self.isAiThinking = False
+        with self.stateLock:
+            self.aiAgent.assignPlayerId(self.gameState.activePlayer)
+            moveIdx = self.aiAgent.selectMove(self.gameState)
+            self.gameState.applyMove(moveIdx)
+            self.lastMoveIdx = moveIdx
+            self.moveLog.append(moveIdx)
+            self.isAiThinking = False
 
         if not self._checkGameEnd():
             pieceColor = "黑" if self.gameState.activePlayer == 1 else "白"

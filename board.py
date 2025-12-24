@@ -68,11 +68,11 @@ class GameState(object):
             currentMoves = moves[players == self.activePlayer]
             opponentMoves = moves[players != self.activePlayer]
             stateArray[0][currentMoves // self.cols,
-                         currentMoves % self.rows] = 1.0
+                         currentMoves % self.cols] = 1.0
             stateArray[1][opponentMoves // self.cols,
-                         opponentMoves % self.rows] = 1.0
+                         opponentMoves % self.cols] = 1.0
             stateArray[2][self.previousMove // self.cols,
-                         self.previousMove % self.rows] = 1.0
+                         self.previousMove % self.cols] = 1.0
         if len(self.positions) % 2 == 0:
             stateArray[3][:, :] = 1.0
         return stateArray[:, ::-1, :]
