@@ -8,40 +8,42 @@ import numpy as np
 
 
 class GameState(object):
-    """Represents the current state of a Gomoku board"""
+    """表示五子棋棋盘的当前状态"""
 
     def __init__(self, **kwargs):
         self.cols = int(kwargs.get('width', 8))
         self.rows = int(kwargs.get('height', 8))
-        # Store positions as dict: key=position index, value=player id
+        # 存储落子位置：键=位置索引，值=玩家ID
         self.positions = {}
-        # Number of consecutive pieces needed to win
+        # 获胜所需的连续棋子数
         self.winCondition = int(kwargs.get('n_in_row', 5))
         self.playerIds = [1, 2]
 
     def initState(self, firstPlayer=0):
+        """初始化棋盘状态"""
         if self.cols < self.winCondition or self.rows < self.winCondition:
-            raise Exception('Board dimensions must be at least {}'.format(self.winCondition))
+            raise Exception('棋盘尺寸必须至少为 {}'.format(self.winCondition))
         self.activePlayer = self.playerIds[firstPlayer]
-        # Available positions for moves
+        # 可落子的位置列表
         self.openPositions = list(range(self.cols * self.rows))
         self.positions = {}
         self.previousMove = -1
 
     def indexToCoord(self, idx):
         """
-        Convert linear index to (row, col) coordinates
-        Board layout example for 3x3:
+        将一维索引转换为 (行, 列) 坐标
+        棋盘布局示例 (3x3):
         6 7 8
         3 4 5
         0 1 2
-        Position 5 -> (1, 2)
+        位置 5 -> (1, 2)
         """
         row = idx // self.cols
         col = idx % self.cols
         return [row, col]
 
     def coordToIndex(self, coord):
+        """将 (行, 列) 坐标转换为一维索引"""
         if len(coord) != 2:
             return -1
         row = coord[0]
@@ -53,12 +55,12 @@ class GameState(object):
 
     def getStateArray(self):
         """
-        Return board state as numpy array from current player's perspective
-        Shape: 4 x cols x rows
-        Channel 0: current player's pieces
-        Channel 1: opponent's pieces
-        Channel 2: last move position
-        Channel 3: color indicator
+        从当前玩家视角返回棋盘状态的 numpy 数组
+        形状: 4 x cols x rows
+        通道 0: 当前玩家的棋子
+        通道 1: 对手的棋子
+        通道 2: 上一步落子位置
+        通道 3: 颜色标识（先手方为1，后手方为0）
         """
         stateArray = np.zeros((4, self.cols, self.rows))
         if self.positions:
@@ -76,6 +78,7 @@ class GameState(object):
         return stateArray[:, ::-1, :]
 
     def applyMove(self, moveIdx):
+        """执行落子操作"""
         self.positions[moveIdx] = self.activePlayer
         self.openPositions.remove(moveIdx)
         self.activePlayer = (
@@ -85,6 +88,7 @@ class GameState(object):
         self.previousMove = moveIdx
 
     def checkVictory(self):
+        """检查是否有玩家获胜（横向/纵向/对角线四个方向）"""
         w = self.cols
         h = self.rows
         positions = self.positions
@@ -99,22 +103,22 @@ class GameState(object):
             col = m % w
             player = positions[m]
 
-            # Check horizontal
+            # 检查横向
             if (col in range(w - n + 1) and
                     len(set(positions.get(i, -1) for i in range(m, m + n))) == 1):
                 return True, player
 
-            # Check vertical
+            # 检查纵向
             if (row in range(h - n + 1) and
                     len(set(positions.get(i, -1) for i in range(m, m + n * w, w))) == 1):
                 return True, player
 
-            # Check diagonal (top-left to bottom-right)
+            # 检查对角线（左上到右下）
             if (col in range(w - n + 1) and row in range(h - n + 1) and
                     len(set(positions.get(i, -1) for i in range(m, m + n * (w + 1), w + 1))) == 1):
                 return True, player
 
-            # Check diagonal (top-right to bottom-left)
+            # 检查对角线（右上到左下）
             if (col in range(n - 1, w) and row in range(h - n + 1) and
                     len(set(positions.get(i, -1) for i in range(m, m + n * (w - 1), w - 1))) == 1):
                 return True, player
@@ -122,7 +126,7 @@ class GameState(object):
         return False, -1
 
     def isTerminal(self):
-        """Check if game has ended"""
+        """检查游戏是否结束"""
         hasWinner, victor = self.checkVictory()
         if hasWinner:
             return True, victor
@@ -131,22 +135,23 @@ class GameState(object):
         return False, -1
 
     def getCurrentPlayer(self):
+        """获取当前执棋玩家"""
         return self.activePlayer
 
 
 class GameController(object):
-    """Controls game flow and manages player interactions"""
+    """控制游戏流程并管理玩家交互"""
 
     def __init__(self, gameState, **kwargs):
         self.state = gameState
 
     def renderBoard(self, gameState, agent1, agent2):
-        """Display the board in terminal"""
+        """在终端显示棋盘"""
         w = gameState.cols
         h = gameState.rows
 
-        print("Player", agent1, "with X".rjust(3))
-        print("Player", agent2, "with O".rjust(3))
+        print("玩家", agent1, "执 X")
+        print("玩家", agent2, "执 O")
         print()
         for x in range(w):
             print("{0:8}".format(x), end='')
@@ -165,9 +170,9 @@ class GameController(object):
             print('\r\n\r\n')
 
     def runMatch(self, agent1, agent2, firstPlayer=0, displayBoard=1):
-        """Run a game between two players"""
+        """运行两个玩家之间的对局"""
         if firstPlayer not in (0, 1):
-            raise Exception('firstPlayer should be 0 or 1')
+            raise Exception('firstPlayer 参数应为 0 或 1')
         self.state.initState(firstPlayer)
         p1, p2 = self.state.playerIds
         agent1.assignPlayerId(p1)
@@ -186,13 +191,13 @@ class GameController(object):
             if finished:
                 if displayBoard:
                     if victor != -1:
-                        print("Game over. Winner is", agents[victor])
+                        print("游戏结束。获胜者:", agents[victor])
                     else:
-                        print("Game over. Draw")
+                        print("游戏结束。平局")
                 return victor
 
     def runSelfPlay(self, agent, displayBoard=0, temperature=1e-3):
-        """Run self-play game for training data collection"""
+        """运行自我对弈游戏以收集训练数据"""
         self.state.initState()
         p1, p2 = self.state.playerIds
         stateHistory, probHistory, playerHistory = [], [], []
@@ -208,7 +213,7 @@ class GameController(object):
                 self.renderBoard(self.state, p1, p2)
             finished, victor = self.state.isTerminal()
             if finished:
-                # Compute rewards from each state's perspective
+                # 从每个状态的视角计算奖励
                 rewards = np.zeros(len(playerHistory))
                 if victor != -1:
                     rewards[np.array(playerHistory) == victor] = 1.0
@@ -216,7 +221,7 @@ class GameController(object):
                 agent.resetState()
                 if displayBoard:
                     if victor != -1:
-                        print("Game over. Winner is player:", victor)
+                        print("游戏结束。获胜者:", victor)
                     else:
-                        print("Game over. Draw")
+                        print("游戏结束。平局")
                 return victor, zip(stateHistory, probHistory, rewards)

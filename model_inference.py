@@ -8,18 +8,21 @@ import numpy as np
 
 
 def computeSoftmax(x):
+    """计算 softmax 概率分布"""
     probabilities = np.exp(x - np.max(x))
     probabilities /= np.sum(probabilities)
     return probabilities
 
 
 def applyRelu(tensor):
+    """应用 ReLU 激活函数"""
     return np.maximum(tensor, 0)
 
 
 def convolutionForward(inputTensor, weights, bias, stride=1, padding=1):
+    """卷积层前向传播"""
     numFilters, filterDepth, filterHeight, filterWidth = weights.shape
-    # Theano conv2d rotates filters 180 degrees
+    # Theano conv2d 会将滤波器旋转 180 度
     weights = weights[:, :, ::-1, ::-1]
     batchSize, inputDepth, inputHeight, inputWidth = inputTensor.shape
     outputHeight = (inputHeight - filterHeight + 2 * padding) / stride + 1
@@ -35,11 +38,13 @@ def convolutionForward(inputTensor, weights, bias, stride=1, padding=1):
 
 
 def fullyConnectedForward(inputTensor, weights, bias):
+    """全连接层前向传播"""
     return np.dot(inputTensor, weights) + bias
 
 
 def computeIm2ColIndices(tensorShape, filterHeight,
                          filterWidth, padding=1, stride=1):
+    """计算 im2col 变换的索引"""
     batchSize, channels, height, width = tensorShape
     assert (height + 2 * padding - filterHeight) % stride == 0
     assert (width + 2 * padding - filterWidth) % stride == 0
@@ -60,7 +65,7 @@ def computeIm2ColIndices(tensorShape, filterHeight,
 
 
 def imageToColumns(inputTensor, filterHeight, filterWidth, padding=1, stride=1):
-    """Convert image patches to column matrix for efficient convolution"""
+    """将图像块转换为列矩阵以实现高效卷积"""
     p = padding
     paddedInput = np.pad(inputTensor, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
 
@@ -74,7 +79,7 @@ def imageToColumns(inputTensor, filterHeight, filterWidth, padding=1, stride=1):
 
 
 class NumpyNetworkEvaluator():
-    """Policy-value network using pure NumPy for inference"""
+    """使用纯 NumPy 进行推理的策略价值网络"""
 
     def __init__(self, boardCols, boardRows, networkParams):
         self.boardCols = boardCols
@@ -83,21 +88,21 @@ class NumpyNetworkEvaluator():
 
     def evaluatePosition(self, gameState):
         """
-        Evaluate board position
-        Returns: (action, probability) tuples and position value
+        评估棋盘局面
+        返回: (动作, 概率) 元组和局面价值
         """
         validMoves = gameState.openPositions
         currentState = gameState.getStateArray()
 
         x = currentState.reshape(-1, 4, self.boardCols, self.boardRows)
-        # Three convolutional layers with ReLU
+        # 三层卷积层配合 ReLU
         for i in [0, 2, 4]:
             x = applyRelu(convolutionForward(x, self.weights[i], self.weights[i + 1]))
-        # Policy head
+        # 策略头
         policyX = applyRelu(convolutionForward(x, self.weights[6], self.weights[7], padding=0))
         policyX = fullyConnectedForward(policyX.flatten(), self.weights[8], self.weights[9])
         actionProbs = computeSoftmax(policyX)
-        # Value head
+        # 价值头
         valueX = applyRelu(convolutionForward(x, self.weights[10],
                                               self.weights[11], padding=0))
         valueX = applyRelu(fullyConnectedForward(valueX.flatten(), self.weights[12], self.weights[13]))

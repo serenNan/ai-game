@@ -1,8 +1,3 @@
-"""
-AI 五子棋 Pygame 图形界面
-支持人机对战，可选择棋盘大小和先后手
-"""
-
 import pygame
 import pickle
 import threading
@@ -31,11 +26,20 @@ MENU_ACCENT = (70, 130, 180)
 def loadChineseFont(size):
     """加载支持中文的字体"""
     fontPaths = [
-        "C:/Windows/Fonts/msyh.ttc",      # 微软雅黑
-        "C:/Windows/Fonts/simhei.ttf",    # 黑体
-        "C:/Windows/Fonts/simsun.ttc",    # 宋体
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # Linux
-        "/System/Library/Fonts/PingFang.ttc",  # macOS
+        # Linux - Noto Sans CJK (常见)
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        # Linux - 文泉驿
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        # Linux - 文鼎
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        # 用户字体目录
+        os.path.expanduser("~/.fonts/LXGWWenKai-Regular.ttf"),
+        # Windows
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
     ]
     for fontPath in fontPaths:
         if os.path.exists(fontPath):

@@ -1,6 +1,6 @@
 """
 使用 Keras 实现的策略价值网络
-已在 Keras 2.0.5 和 tensorflow-gpu 1.2.1 版本测试通过
+为 AlphaZero 的蒙特卡洛树搜索提供神经网络引导
 """
 
 from __future__ import print_function
@@ -22,7 +22,7 @@ import pickle
 
 
 class NeuralNetworkEvaluator():
-    """Policy-value network using Keras"""
+    """使用 Keras 实现的策略价值网络"""
 
     def __init__(self, boardCols, boardRows, modelPath=None):
         self.boardCols = boardCols
@@ -36,10 +36,10 @@ class NeuralNetworkEvaluator():
             self.model.set_weights(savedParams)
 
     def _buildNetwork(self):
-        """Construct the neural network architecture"""
+        """构建神经网络架构"""
         inputLayer = network = Input((4, self.boardCols, self.boardRows))
 
-        # Shared convolutional layers
+        # 共享卷积层
         network = Conv2D(filters=32, kernel_size=(3, 3), padding="same",
                          data_format="channels_first", activation="relu",
                          kernel_regularizer=l2(self.l2Regularization))(network)
@@ -50,7 +50,7 @@ class NeuralNetworkEvaluator():
                          data_format="channels_first", activation="relu",
                          kernel_regularizer=l2(self.l2Regularization))(network)
 
-        # Policy head
+        # 策略头
         policyNetwork = Conv2D(filters=4, kernel_size=(1, 1),
                                data_format="channels_first", activation="relu",
                                kernel_regularizer=l2(self.l2Regularization))(network)
@@ -59,7 +59,7 @@ class NeuralNetworkEvaluator():
                                   activation="softmax",
                                   kernel_regularizer=l2(self.l2Regularization))(policyNetwork)
 
-        # Value head
+        # 价值头
         valueNetwork = Conv2D(filters=2, kernel_size=(1, 1),
                               data_format="channels_first", activation="relu",
                               kernel_regularizer=l2(self.l2Regularization))(network)
@@ -78,8 +78,8 @@ class NeuralNetworkEvaluator():
 
     def evaluatePosition(self, gameState):
         """
-        Evaluate board position
-        Returns: (action, probability) tuples and position value
+        评估棋盘局面
+        返回: (动作, 概率) 元组和局面价值
         """
         validMoves = gameState.openPositions
         currentState = gameState.getStateArray()
@@ -89,7 +89,7 @@ class NeuralNetworkEvaluator():
         return actionProbs, value[0][0]
 
     def _setupTraining(self):
-        """Configure training operations"""
+        """配置训练操作"""
         optimizer = Adam()
         losses = ['categorical_crossentropy', 'mean_squared_error']
         self.model.compile(optimizer=optimizer, loss=losses)
@@ -113,9 +113,10 @@ class NeuralNetworkEvaluator():
         self.trainOnBatch = executeTrainStep
 
     def getNetworkParams(self):
+        """获取网络参数"""
         return self.model.get_weights()
 
     def saveCheckpoint(self, filePath):
-        """Save model parameters to file"""
+        """保存模型参数到文件"""
         params = self.getNetworkParams()
         pickle.dump(params, open(filePath, 'wb'), protocol=2)

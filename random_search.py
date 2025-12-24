@@ -9,13 +9,13 @@ from operator import itemgetter
 
 
 def randomRolloutPolicy(gameState):
-    """Simple random policy for rollout phase"""
+    """随机策略用于模拟阶段"""
     actionProbs = np.random.rand(len(gameState.openPositions))
     return zip(gameState.openPositions, actionProbs)
 
 
 def uniformEvaluator(gameState):
-    """Returns uniform action probabilities and zero value"""
+    """返回均匀动作概率和零价值"""
     numActions = len(gameState.openPositions)
     actionProbs = np.ones(numActions) / numActions
     return zip(gameState.openPositions, actionProbs), 0
@@ -23,8 +23,8 @@ def uniformEvaluator(gameState):
 
 class SearchNode(object):
     """
-    A node in the MCTS search tree.
-    Tracks Q-value, prior probability P, and visit-adjusted score U.
+    MCTS 搜索树中的节点
+    跟踪 Q 值、先验概率 P 和访问调整分数 U
     """
 
     def __init__(self, parentNode, priorProb):
@@ -37,8 +37,8 @@ class SearchNode(object):
 
     def expandNode(self, actionPriors):
         """
-        Expand tree by adding child nodes.
-        actionPriors: list of (action, prior_probability) tuples
+        通过添加子节点扩展树
+        actionPriors: (动作, 先验概率) 元组列表
         """
         for action, prob in actionPriors:
             if action not in self._childNodes:
@@ -46,51 +46,52 @@ class SearchNode(object):
 
     def selectChild(self, explorationWeight):
         """
-        Select child with highest Q + U value.
-        Returns: (action, child_node) tuple
+        选择 Q + U 值最高的子节点
+        返回: (动作, 子节点) 元组
         """
         return max(self._childNodes.items(),
                    key=lambda item: item[1].computeScore(explorationWeight))
 
     def updateStats(self, leafValue):
         """
-        Update node statistics after leaf evaluation.
-        leafValue: evaluation from current player's perspective
+        叶节点评估后更新节点统计信息
+        leafValue: 从当前玩家视角的评估值
         """
         self._visitCount += 1
         self._qValue += 1.0 * (leafValue - self._qValue) / self._visitCount
 
     def backpropagate(self, leafValue):
-        """Recursively update all ancestors"""
+        """递归更新所有祖先节点"""
         if self._parentNode:
             self._parentNode.backpropagate(-leafValue)
         self.updateStats(leafValue)
 
     def computeScore(self, explorationWeight):
         """
-        Calculate node score: Q + U
-        explorationWeight: controls exploration vs exploitation
+        计算节点分数: Q + U
+        explorationWeight: 控制探索与利用的平衡
         """
         self._ucbBonus = (explorationWeight * self._priorProb *
                          np.sqrt(self._parentNode._visitCount) / (1 + self._visitCount))
         return self._qValue + self._ucbBonus
 
     def isLeafNode(self):
-        """Check if node has no children"""
+        """检查节点是否没有子节点"""
         return self._childNodes == {}
 
     def isRootNode(self):
+        """检查节点是否为根节点"""
         return self._parentNode is None
 
 
 class PureMonteCarloSearch(object):
-    """Pure MCTS without neural network guidance"""
+    """不使用神经网络引导的纯 MCTS"""
 
     def __init__(self, policyValueFn, explorationWeight=5, numSimulations=10000):
         """
-        policyValueFn: function that returns (action_probs, value) for a state
-        explorationWeight: UCB exploration constant
-        numSimulations: number of MCTS iterations per move
+        policyValueFn: 返回 (动作概率, 价值) 的状态评估函数
+        explorationWeight: UCB 探索常数
+        numSimulations: 每步棋的 MCTS 迭代次数
         """
         self._rootNode = SearchNode(None, 1.0)
         self._evaluator = policyValueFn
@@ -99,8 +100,8 @@ class PureMonteCarloSearch(object):
 
     def _runSimulation(self, gameState):
         """
-        Execute one simulation from root to leaf, evaluate via rollout, backpropagate.
-        gameState is modified in-place; caller must provide a copy.
+        执行一次从根节点到叶节点的模拟，通过随机模拟评估，反向传播
+        gameState 会被原地修改；调用者必须提供副本
         """
         node = self._rootNode
         while True:
@@ -118,8 +119,8 @@ class PureMonteCarloSearch(object):
 
     def _performRollout(self, gameState, maxMoves=1000):
         """
-        Play random moves until game ends.
-        Returns: +1 if current player wins, -1 if loses, 0 if draw
+        随机落子直到游戏结束
+        返回: 当前玩家赢返回 +1，输返回 -1，平局返回 0
         """
         currentPlayer = gameState.getCurrentPlayer()
         for _ in range(maxMoves):
@@ -130,14 +131,14 @@ class PureMonteCarloSearch(object):
             bestAction = max(actionProbs, key=itemgetter(1))[0]
             gameState.applyMove(bestAction)
         else:
-            print("WARNING: rollout reached move limit")
+            print("警告: 随机模拟达到步数上限")
         if victor == -1:
             return 0
         else:
             return 1 if victor == currentPlayer else -1
 
     def selectBestMove(self, gameState):
-        """Run simulations and return most visited action"""
+        """运行模拟并返回访问次数最多的动作"""
         for _ in range(self._numSimulations):
             stateCopy = copy.deepcopy(gameState)
             self._runSimulation(stateCopy)
@@ -146,8 +147,8 @@ class PureMonteCarloSearch(object):
 
     def advanceTree(self, lastAction):
         """
-        Move root to child corresponding to lastAction.
-        Preserves subtree knowledge.
+        将根节点移动到对应 lastAction 的子节点
+        保留子树的搜索知识
         """
         if lastAction in self._rootNode._childNodes:
             self._rootNode = self._rootNode._childNodes[lastAction]
@@ -160,25 +161,28 @@ class PureMonteCarloSearch(object):
 
 
 class PureSearchAgent(object):
-    """AI player using pure MCTS without neural network"""
+    """不使用神经网络的纯 MCTS AI 玩家"""
 
     def __init__(self, explorationWeight=5, numSimulations=2000):
         self.searchTree = PureMonteCarloSearch(uniformEvaluator, explorationWeight, numSimulations)
 
     def assignPlayerId(self, playerId):
+        """分配玩家 ID"""
         self.playerId = playerId
 
     def resetState(self):
+        """重置搜索树状态"""
         self.searchTree.advanceTree(-1)
 
     def selectMove(self, gameState):
+        """选择最佳落子位置"""
         validMoves = gameState.openPositions
         if len(validMoves) > 0:
             move = self.searchTree.selectBestMove(gameState)
             self.searchTree.advanceTree(-1)
             return move
         else:
-            print("WARNING: no valid moves available")
+            print("警告: 没有可用的合法落子位置")
 
     def __str__(self):
         return "PureSearchAgent {}".format(self.playerId)

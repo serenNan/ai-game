@@ -1,6 +1,6 @@
 """
-使用 Theano 和 Lasagne 实现的策略价值网络
-默认用于训练和推理的实现
+使用 Theano/Lasagne 实现的策略价值网络
+为 AlphaZero 的蒙特卡洛树搜索提供神经网络引导
 """
 
 from __future__ import print_function
@@ -11,7 +11,7 @@ import pickle
 
 
 class NeuralNetworkEvaluator():
-    """Policy-value network using Theano/Lasagne"""
+    """使用 Theano/Lasagne 实现的策略价值网络"""
 
     def __init__(self, boardCols, boardRows, modelPath=None):
         self.boardCols = boardCols
@@ -30,7 +30,7 @@ class NeuralNetworkEvaluator():
                 [self.policyLayer, self.valueLayer], savedParams)
 
     def _buildNetwork(self):
-        """Construct the neural network architecture"""
+        """构建神经网络架构"""
         self.inputState = T.tensor4('state')
         self.targetOutcome = T.vector('winner')
         self.targetProbs = T.matrix('mcts_probs')
@@ -38,7 +38,7 @@ class NeuralNetworkEvaluator():
             shape=(None, 4, self.boardCols, self.boardRows),
             input_var=self.inputState)
 
-        # Shared convolutional layers
+        # 共享卷积层
         network = lasagne.layers.Conv2DLayer(
             network, num_filters=32, filter_size=(3, 3), pad='same')
         network = lasagne.layers.Conv2DLayer(
@@ -46,14 +46,14 @@ class NeuralNetworkEvaluator():
         network = lasagne.layers.Conv2DLayer(
             network, num_filters=128, filter_size=(3, 3), pad='same')
 
-        # Policy head
+        # 策略头
         policyNetwork = lasagne.layers.Conv2DLayer(
             network, num_filters=4, filter_size=(1, 1))
         self.policyLayer = lasagne.layers.DenseLayer(
             policyNetwork, num_units=self.boardCols * self.boardRows,
             nonlinearity=lasagne.nonlinearities.softmax)
 
-        # Value head
+        # 价值头
         valueNetwork = lasagne.layers.Conv2DLayer(
             network, num_filters=2, filter_size=(1, 1))
         valueNetwork = lasagne.layers.DenseLayer(valueNetwork, num_units=64)
@@ -61,7 +61,7 @@ class NeuralNetworkEvaluator():
             valueNetwork, num_units=1,
             nonlinearity=lasagne.nonlinearities.tanh)
 
-        # Get outputs
+        # 获取输出
         self.actionProbs, self.positionValue = lasagne.layers.get_output(
             [self.policyLayer, self.valueLayer])
         self.batchEvaluate = theano.function([self.inputState],
@@ -70,8 +70,8 @@ class NeuralNetworkEvaluator():
 
     def evaluatePosition(self, gameState):
         """
-        Evaluate board position
-        Returns: (action, probability) tuples and position value
+        评估棋盘局面
+        返回: (动作, 概率) 元组和局面价值
         """
         validMoves = gameState.openPositions
         currentState = gameState.getStateArray()
@@ -81,7 +81,7 @@ class NeuralNetworkEvaluator():
         return actionProbs, value[0][0]
 
     def _setupTraining(self):
-        """Configure loss function and optimizer"""
+        """配置损失函数和优化器"""
         params = lasagne.layers.get_all_params(
             [self.policyLayer, self.valueLayer], trainable=True)
         valueLoss = lasagne.objectives.squared_error(
@@ -92,10 +92,10 @@ class NeuralNetworkEvaluator():
             params, lasagne.regularization.l2)
         self.totalLoss = self.l2Regularization * l2Penalty + lasagne.objectives.aggregate(
             valueLoss + policyLoss, mode='mean')
-        # Entropy for monitoring
+        # 用于监控的熵
         self.policyEntropy = -T.mean(T.sum(
             self.actionProbs * T.log(self.actionProbs + 1e-10), axis=1))
-        # Optimizer
+        # 优化器
         updates = lasagne.updates.adam(self.totalLoss, params,
                                        learning_rate=self.learningRate)
         self.trainOnBatch = theano.function(
@@ -105,10 +105,11 @@ class NeuralNetworkEvaluator():
             allow_input_downcast=True)
 
     def getNetworkParams(self):
+        """获取网络参数"""
         return lasagne.layers.get_all_param_values(
             [self.policyLayer, self.valueLayer])
 
     def saveCheckpoint(self, filePath):
-        """Save model parameters to file"""
+        """保存模型参数到文件"""
         params = self.getNetworkParams()
         pickle.dump(params, open(filePath, 'wb'), protocol=2)

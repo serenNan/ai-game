@@ -12,51 +12,52 @@ import numpy as np
 
 
 def adjustLearningRate(optimizer, newLr):
-    """Update optimizer learning rate"""
+    """更新优化器的学习率"""
     for paramGroup in optimizer.param_groups:
         paramGroup['lr'] = newLr
 
 
 class ConvolutionalNetwork(nn.Module):
-    """Neural network architecture for policy and value estimation"""
+    """用于策略和价值估计的神经网络架构"""
 
     def __init__(self, boardCols, boardRows):
         super(ConvolutionalNetwork, self).__init__()
 
         self.boardCols = boardCols
         self.boardRows = boardRows
-        # Shared convolutional layers
+        # 共享卷积层
         self.conv1 = nn.Conv2d(4, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        # Policy head layers
+        # 策略头层
         self.policyConv = nn.Conv2d(128, 4, kernel_size=1)
         self.policyFc = nn.Linear(4 * boardCols * boardRows,
                                   boardCols * boardRows)
-        # Value head layers
+        # 价值头层
         self.valueConv = nn.Conv2d(128, 2, kernel_size=1)
         self.valueFc1 = nn.Linear(2 * boardCols * boardRows, 64)
         self.valueFc2 = nn.Linear(64, 1)
 
     def forward(self, inputState):
-        # Shared layers
+        """前向传播"""
+        # 共享层
         x = F.relu(self.conv1(inputState))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
-        # Policy head
+        # 策略头
         policyOut = F.relu(self.policyConv(x))
         policyOut = policyOut.view(-1, 4 * self.boardCols * self.boardRows)
-        policyOut = F.log_softmax(self.policyFc(policyOut))
-        # Value head
+        policyOut = F.log_softmax(self.policyFc(policyOut), dim=1)
+        # 价值头
         valueOut = F.relu(self.valueConv(x))
         valueOut = valueOut.view(-1, 2 * self.boardCols * self.boardRows)
         valueOut = F.relu(self.valueFc1(valueOut))
-        valueOut = F.tanh(self.valueFc2(valueOut))
+        valueOut = torch.tanh(self.valueFc2(valueOut))
         return policyOut, valueOut
 
 
 class NeuralNetworkEvaluator():
-    """Wrapper class for neural network training and inference"""
+    """神经网络训练和推理的封装类"""
 
     def __init__(self, boardCols, boardRows,
                  modelPath=None, useGpu=False):
@@ -64,7 +65,7 @@ class NeuralNetworkEvaluator():
         self.boardCols = boardCols
         self.boardRows = boardRows
         self.l2Regularization = 1e-4
-        # Initialize network
+        # 初始化网络
         if self.useGpu:
             self.network = ConvolutionalNetwork(boardCols, boardRows).cuda()
         else:
@@ -78,8 +79,8 @@ class NeuralNetworkEvaluator():
 
     def batchEvaluate(self, stateBatch):
         """
-        Evaluate a batch of states
-        Returns: action probabilities and state values
+        批量评估状态
+        返回: 动作概率和状态价值
         """
         if self.useGpu:
             stateBatch = Variable(torch.FloatTensor(stateBatch).cuda())
@@ -94,8 +95,8 @@ class NeuralNetworkEvaluator():
 
     def evaluatePosition(self, gameState):
         """
-        Evaluate single board position
-        Returns: (action, probability) tuples and position value
+        评估单个棋盘局面
+        返回: (动作, 概率) 元组和局面价值
         """
         validMoves = gameState.openPositions
         currentState = np.ascontiguousarray(gameState.getStateArray().reshape(
@@ -114,7 +115,7 @@ class NeuralNetworkEvaluator():
         return actionProbs, value
 
     def trainOnBatch(self, stateBatch, targetProbs, targetOutcomes, learningRate):
-        """Execute one training step"""
+        """执行一次训练步骤"""
         if self.useGpu:
             stateBatch = Variable(torch.FloatTensor(stateBatch).cuda())
             targetProbs = Variable(torch.FloatTensor(targetProbs).cuda())
@@ -128,24 +129,23 @@ class NeuralNetworkEvaluator():
         adjustLearningRate(self.optimizer, learningRate)
 
         logProbs, values = self.network(stateBatch)
-        # Loss: (z - v)^2 - pi^T * log(p) + c||theta||^2
+        # 损失函数: (z - v)^2 - pi^T * log(p) + c||theta||^2
         valueLoss = F.mse_loss(values.view(-1), targetOutcomes)
         policyLoss = -torch.mean(torch.sum(targetProbs * logProbs, 1))
         totalLoss = valueLoss + policyLoss
         totalLoss.backward()
         self.optimizer.step()
-        # Compute entropy for monitoring
+        # 计算熵用于监控
         entropy = -torch.mean(
             torch.sum(torch.exp(logProbs) * logProbs, 1)
         )
-        return totalLoss.data[0], entropy.data[0]
-        # For PyTorch >= 0.5 use:
-        # return totalLoss.item(), entropy.item()
+        return totalLoss.item(), entropy.item()
 
     def getNetworkParams(self):
+        """获取网络参数"""
         return self.network.state_dict()
 
     def saveCheckpoint(self, filePath):
-        """Save model parameters to file"""
+        """保存模型参数到文件"""
         params = self.getNetworkParams()
         torch.save(params, filePath)

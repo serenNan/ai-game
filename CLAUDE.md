@@ -12,7 +12,7 @@ AlphaZero-Gomoku is a Python implementation of the AlphaZero algorithm for Gomok
 ```bash
 python main.py
 ```
-Launches Pygame GUI with Human vs AI and AI vs AI modes. Uses pure NumPy inference with pre-trained model (`best_policy_8_8_5.model`).
+Launches Pygame GUI with Human vs AI modes. Uses pure NumPy inference with pre-trained model (`8_8_5.model`).
 
 ### Train from scratch
 ```bash
@@ -31,32 +31,12 @@ from model_keras import NeuralNetworkEvaluator   # Keras
 
 ### Core Components
 
-**Game Engine** (`board.py`):
-- `GameState`: Board state management, legal moves, winner detection
-- `GameController`: Game flow orchestration, self-play data collection
-- Board state represented as 4 channels: current pieces, opponent pieces, last move, color to play
-
-**MCTS with Neural Network** (`neural_search.py`):
-- `SearchNode`: UCB1 selection with prior probabilities from policy network
-- `MonteCarloTreeSearch`: MCTS with neural network guidance
-- `TreeSearchAgent`: AI player interface with optional Dirichlet noise for self-play exploration
-
-**Pure MCTS** (`random_search.py`):
-- `PureMonteCarloSearch`: Baseline MCTS without neural network (random rollouts)
-- `PureSearchAgent`: Used for evaluation during training
-
-**Policy-Value Networks**:
-| File | Framework | Notes |
-|------|-----------|-------|
-| `model_theano.py` | Theano/Lasagne | Default, pre-trained models use this |
-| `model_torch.py` | PyTorch | GPU support |
-| `model_tf.py` | TensorFlow | GPU support |
-| `model_keras.py` | Keras | - |
-| `model_inference.py` | NumPy only | Inference only, loads Theano weights |
-
-**GUI** (`main.py`):
-- Pygame-based interface supporting Human vs AI and AI vs AI modes
-- Player order selection (first/second)
+- `board.py`: Game engine - `GameState` (board state, 4-channel representation) and `GameController` (game flow, self-play)
+- `neural_search.py`: MCTS with neural network guidance - `SearchNode`, `MonteCarloTreeSearch`, `TreeSearchAgent`
+- `random_search.py`: Pure MCTS baseline (random rollouts) for evaluation
+- `model_*.py`: Policy-value networks (Theano, PyTorch, TensorFlow, Keras implementations)
+- `model_inference.py`: NumPy-only inference, loads Theano weights without requiring the framework
+- `main.py`: Pygame GUI
 
 ### Training Pipeline (`trainer.py`)
 
@@ -83,7 +63,7 @@ Key parameters in `TrainingManager`:
 - `6_6_4.model`: 6x6 board, 4-in-a-row
 - `8_8_5.model`: 8x8 board, 5-in-a-row
 
-Models are in Theano/Lasagne format. `model_inference.py` can load these for inference without Theano installed.
+Models are in Theano/Lasagne pickle format. `model_inference.py` loads these for inference without Theano.
 
 ## Dependencies
 
